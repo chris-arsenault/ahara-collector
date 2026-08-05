@@ -52,8 +52,19 @@ elsewhere any AWS-credentialed shell works. Delete the local file once it
 is on the appliance.)
 
 Boot the NixOS installer USB on the S13 — if no wire is available at the
-bench, `nmtui` gets the installer online — set a temporary root password
-(`sudo passwd`), note its address, then from your machine:
+bench, `nmtui` gets the installer online — then at its console:
+
+```bash
+sudo passwd                           # temporary ROOT password (installer-only)
+test -d /sys/firmware/efi/efivars     # must succeed: UEFI boot
+ip -brief address                     # note the address = INSTALLER_IP
+ls -l /dev/disk/by-id/                # note the whole-disk NVMe id = INSTALL_DISK
+```
+
+The password exists only in the live installer and dies with it. Pick the
+`nvme-…` entry that names the disk itself, not an `…-part1`-suffixed
+partition (the bootstrap rejects partitions and unstable `/dev/nvme0n1`
+paths). Then from your machine:
 
 ```bash
 scp ~/.ssh/s13-ops.pub root@INSTALLER_IP:/tmp/ops.pub
@@ -66,7 +77,7 @@ On the installer (the repo is public, so no credentials are involved):
 ```bash
 nix --extra-experimental-features 'nix-command flakes' \
   run 'github:chris-arsenault/ahara-collector#bootstrap-s13' -- \
-  --disk /dev/disk/by-id/nvme-... \
+  --disk /dev/disk/by-id/<INSTALL_DISK> \
   --key-file /tmp/ops.pub \
   --address 192.168.65.10 \
   --home-lan-cidr 192.168.65.0/24 \
