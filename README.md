@@ -30,6 +30,33 @@ to originate on the WiiM subnet itself (ADR-0001).
 | `cargo test` (in `service/`) | Rust unit tests |
 | `nix run .#bootstrap-s13` | Install the appliance (run on the NixOS installer; see runbook) |
 
+## Device credentials
+
+The devices' credentials already live in SSM under the house-sensors
+paths; render them into the credentials file rather than retyping them
+(run from any AWS-credentialed machine):
+
+```bash
+get() { aws ssm get-parameter --with-decryption --query Parameter.Value --output text --name "$1"; }
+cat > credentials.json <<EOF
+{
+  "envSensors": {
+    "username": "$(get /ahara/house-sensors/environment-sensors/device-user)",
+    "password": "$(get /ahara/house-sensors/environment-sensors/device-pass)"
+  },
+  "kasa": {
+    "username": "$(get /ahara/house-sensors/volt/kasa-username)",
+    "password": "$(get /ahara/house-sensors/volt/kasa-password)"
+  }
+}
+EOF
+```
+
+Hand the file to `bootstrap-s13 --credentials-file` at install, or upload
+it later per the [runbook](docs/runbook.md) (scp, `install -m 0600` to
+`/var/lib/ahara-collector/credentials.json`, restart `ahara-collector`).
+Delete the local copy afterwards; it never belongs in a repo.
+
 ## Deployment
 
 CI validates `main` and advances the `release` branch; the appliance polls
