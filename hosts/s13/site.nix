@@ -66,8 +66,11 @@ in
     kasa = v.kasa // {
       discoveryBindPort = 20003;
     };
+    # A standalone state directory owned entirely by the service's dynamic
+    # user; /var/lib/ahara-collector stays root-owned host state (values,
+    # credentials, keys) that the sandboxed service cannot traverse.
     spool = v.spool // {
-      dir = "/var/lib/ahara-collector/spool";
+      dir = "/var/lib/ahara-collector-spool";
     };
   };
 }

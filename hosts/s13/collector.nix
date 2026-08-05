@@ -79,7 +79,7 @@ in
       RestartSec = "2s";
 
       DynamicUser = true;
-      StateDirectory = "ahara-collector/spool";
+      StateDirectory = "ahara-collector-spool";
       NoNewPrivileges = true;
       PrivateDevices = true;
       PrivateTmp = true;
