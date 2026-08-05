@@ -213,15 +213,12 @@ cat <<EOF
 
 Installed. Next steps:
   1. Reboot into the installed system and SSH in as ops@$address.
-  2. Register the deploy key (generated on first boot) as a read-only GitHub
-     deploy key on chris-arsenault/ahara-collector:
-       sudo cat /var/lib/ahara-collector/deploy-key.pub
-  3. Read the API bearer token for the TrueNAS pull job:
+  2. Read the API bearer token for the TrueNAS pull job:
        sudo cat /var/lib/ahara-collector/api-token
 EOF
 if [ -z "$credentials_file" ]; then
   cat <<'EOF'
-  4. Upload the device credentials, then restart the collector:
+  3. Upload the device credentials, then restart the collector:
        scp credentials.json ops@ADDRESS:/tmp/credentials.json
        ssh ops@ADDRESS 'sudo install -m 0600 -o root -g root \
          /tmp/credentials.json /var/lib/ahara-collector/credentials.json \

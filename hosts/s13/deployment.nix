@@ -67,7 +67,6 @@ let
       gawk
       gnugrep
       nix
-      openssh
     ];
     text = ''
       state_dir=/var/lib/s13-update
@@ -81,16 +80,9 @@ let
         exit 1
       }
 
-      # Private-repo access is one explicit contract: the read-only deploy key
-      # minted on first boot and registered in GitHub.
-      deploy_key=/var/lib/ahara-collector/deploy-key
-      [ -r "$deploy_key" ] || {
-        echo "no $deploy_key on this host; register the generated deploy key"
-        exit 1
-      }
-      export GIT_SSH_COMMAND="ssh -i $deploy_key -o IdentitiesOnly=yes"
+      # The repo is public: the updater fetches anonymously over https, so
+      # the appliance holds no repo credential at all.
       repo_url="${d.repoUrl}"
-      repo_url="git@github.com:''${repo_url#https://github.com/}"
 
       target=$(git ls-remote "$repo_url" "refs/heads/${d.branch}" | awk '{print $1}')
       if [ -z "$target" ]; then
@@ -156,30 +148,6 @@ let
 in
 {
   environment.systemPackages = [ healthCheck ];
-
-  # Read-only repo access for pull-deploys against a private repo: a deploy
-  # key minted on first boot. Register the public half as a GitHub deploy key.
-  systemd.services.s13-deploy-keygen = {
-    description = "Generate the repo deploy key on first boot";
-    wantedBy = [ "multi-user.target" ];
-    unitConfig.ConditionPathExists = "!/var/lib/ahara-collector/deploy-key";
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      UMask = "0077";
-    };
-    path = [ pkgs.openssh ];
-    script = ''
-      mkdir -p /var/lib/ahara-collector
-      ssh-keygen -t ed25519 -N "" -C "s13-deploy" -f /var/lib/ahara-collector/deploy-key
-      chmod 644 /var/lib/ahara-collector/deploy-key.pub
-    '';
-  };
-
-  # GitHub's published host key, pinned declaratively so the updater's ssh
-  # never prompts.
-  programs.ssh.knownHosts."github.com".publicKey =
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
 
   systemd.services.s13-update = {
     description = "Fetch and activate the latest validated collector release";

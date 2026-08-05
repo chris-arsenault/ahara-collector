@@ -228,12 +228,10 @@ pkgs.testers.runNixOSTest {
         collector.succeed("nft list ruleset | grep -qF 'collector:ssdp'")
         collector.succeed("nft list ruleset | grep -qF 'collector:env-discovery-replies'")
 
-    with subtest("first-boot state: API token and deploy key generated"):
+    with subtest("first-boot state: API token generated"):
         collector.wait_for_unit("ahara-collector-token.service")
         collector.succeed("test -s /var/lib/ahara-collector/api-token")
         collector.succeed("test $(stat -c %a /var/lib/ahara-collector/api-token) = 600")
-        collector.wait_for_unit("s13-deploy-keygen.service")
-        collector.succeed("test -s /var/lib/ahara-collector/deploy-key.pub")
 
     with subtest("collector service runs and binds its sockets"):
         collector.wait_for_unit("ahara-collector.service")

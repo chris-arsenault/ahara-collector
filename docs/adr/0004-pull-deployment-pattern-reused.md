@@ -13,12 +13,14 @@ with rollback (its ADR-0001, ADR-0006, ADR-0008).
 
 ## Decision
 
-Adopt the pattern unchanged, renamed for this host: `s13-update` timer and
-service, `(revision, values-hash)` change key so a values-only edit
-redeploys, first-boot generated read-only deploy key for the private repo,
-pinned GitHub host key, health-check gate with rollback to the previous
-generation, and the store at `/var/lib/ahara-collector/site-values.json`
-seeded by the bootstrap installer.
+Adopt the pattern renamed for this host: `s13-update` timer and service,
+`(revision, values-hash)` change key so a values-only edit redeploys,
+health-check gate with rollback to the previous generation, and the store
+at `/var/lib/ahara-collector/site-values.json` seeded by the bootstrap
+installer. One divergence from the gateway: this repo is public, so the
+updater fetches anonymously over https and the deploy-key machinery
+(first-boot keygen, GitHub registration, pinned host key) is omitted
+entirely.
 
 The values file is JSON (as ahara-vpn migrated to) but is edited on the
 host directly — this appliance has no configuration API. If one proves
@@ -27,7 +29,8 @@ necessary it needs its own ADR; the gateway's audited-API rationale
 
 ## Consequences
 
-- Deploys need no credentials anywhere but the appliance's own deploy key.
+- Deploys need no credentials anywhere: a public repo and an anonymous
+  fetch mean the appliance holds nothing that grants repo access.
 - The updater self-invokes `switch-to-configuration`, so its unit carries
   the same self-upgrade guards (`restartIfChanged = false`,
   `X-StopOnRemoval = false`) the gateway documented.
