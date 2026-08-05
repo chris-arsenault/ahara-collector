@@ -26,6 +26,7 @@ let
       gnugrep
       iproute2
       iputils
+      nftables
     ];
     text = ''
       fail=0
