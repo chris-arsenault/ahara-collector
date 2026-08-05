@@ -1,6 +1,6 @@
-//! InfluxDB line-protocol construction. Field names and escaping mirror the
-//! house-sensors collectors exactly, so the TrueNAS pull job can write these
-//! lines to the same buckets without translation.
+//! InfluxDB line-protocol construction. The measurement schema is this
+//! repo's own (docs/architecture.md): one field per quantity, SI units in
+//! the field name, time only in the line timestamp.
 
 pub enum FieldValue {
     Float(f64),
@@ -116,9 +116,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_the_house_sensors_shape() {
-        // Mirrors the wire shape asserted by house-sensors'
-        // tests/test_environment_sensors.py.
+    fn builds_escaped_lines() {
         let built = line(
             "environment",
             &[
@@ -129,7 +127,7 @@ mod tests {
             &[
                 ("humidity".into(), FieldValue::Float(45.1)),
                 ("pressure_pa".into(), FieldValue::Float(101325.0)),
-                ("timestamp_iso".into(), FieldValue::Str("2026-06-30T03:00:00Z".into())),
+                ("note".into(), FieldValue::Str("say \"hi\"".into())),
             ],
             1_700_000_000_123_456_789,
         )
@@ -137,7 +135,7 @@ mod tests {
         assert_eq!(
             built,
             "environment,device=Office\\ Sensor,ip=192.168.66.42,room=office\\ lab \
-             humidity=45.1,pressure_pa=101325,timestamp_iso=\"2026-06-30T03:00:00Z\" \
+             humidity=45.1,pressure_pa=101325,note=\"say \\\"hi\\\"\" \
              1700000000123456789"
         );
     }

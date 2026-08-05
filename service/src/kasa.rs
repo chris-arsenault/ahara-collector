@@ -1,8 +1,8 @@
 //! Kasa smart-plug module (KP125M energy monitoring). These devices speak
 //! TP-Link's KLAP v2 transport: a seed handshake authenticated by the Kasa
 //! cloud account credentials, then AES-128-CBC payloads over plain HTTP.
-//! The protocol here follows python-kasa's KlapTransportV2, which the
-//! TrueNAS voltage collector uses today.
+//! The protocol here follows python-kasa's KlapTransportV2, the
+//! interoperability reference (ADR-0005).
 //!
 //! EXPERIMENTAL until validated against real hardware: the handshake and
 //! key derivation are implemented from the python-kasa semantics and
@@ -243,43 +243,44 @@ impl KlapSession {
     }
 }
 
-/// Build the voltage_monitoring line from get_energy_usage (and optionally
-/// device info). Field names mirror the TrueNAS voltage collector: power in
-/// W, total in kWh; voltage/current only when the device reports them.
-pub fn build_power_line(
-    energy: &Json,
-    device: &KasaDevice,
-    now_ns: i64,
-) -> Option<String> {
+/// Build the `power` measurement line from get_energy_usage. One field per
+/// quantity, SI units in the name, normalized at the edge from the
+/// device's milli-units; tags match the environment measurement (`device`,
+/// `ip`, `model`).
+pub fn build_power_line(energy: &Json, device: &KasaDevice, now_ns: i64) -> Option<String> {
     let result = energy.get("result").unwrap_or(energy);
+    let read = |key: &str| result.get(key).and_then(Json::as_f64);
     let mut fields: Vec<(String, FieldValue)> = Vec::new();
-    if let Some(mw) = result.get("current_power").and_then(Json::as_f64) {
-        fields.push(("power".to_string(), FieldValue::Float(mw / 1000.0)));
+    if let Some(mw) = read("current_power") {
+        fields.push(("power_w".to_string(), FieldValue::Float(mw / 1000.0)));
     }
-    if let Some(wh) = result.get("today_energy").and_then(Json::as_f64) {
-        fields.push(("total".to_string(), FieldValue::Float(wh / 1000.0)));
+    if let Some(wh) = read("today_energy") {
+        fields.push(("energy_today_kwh".to_string(), FieldValue::Float(wh / 1000.0)));
     }
-    if let Some(mv) = result.get("voltage_mv").and_then(Json::as_f64) {
-        fields.push(("voltage".to_string(), FieldValue::Float(mv / 1000.0)));
+    if let Some(mv) = read("voltage_mv") {
+        fields.push(("voltage_v".to_string(), FieldValue::Float(mv / 1000.0)));
     }
-    if let Some(ma) = result.get("current_ma").and_then(Json::as_f64) {
-        fields.push(("current".to_string(), FieldValue::Float(ma / 1000.0)));
+    if let Some(ma) = read("current_ma") {
+        fields.push(("current_a".to_string(), FieldValue::Float(ma / 1000.0)));
     }
     if fields.is_empty() {
         return None;
     }
-    let tags = vec![
+    let mut tags = vec![
         (
-            "device_name".to_string(),
+            "device".to_string(),
             device
                 .name
                 .clone()
                 .or_else(|| device.device_id.clone())
                 .unwrap_or_else(|| device.ip.to_string()),
         ),
-        ("device_ip".to_string(), device.ip.to_string()),
+        ("ip".to_string(), device.ip.to_string()),
     ];
-    lineproto::line("voltage_monitoring", &tags, &fields, now_ns)
+    if let Some(model) = &device.model {
+        tags.push(("model".to_string(), model.clone()));
+    }
+    lineproto::line("power", &tags, &fields, now_ns)
 }
 
 /// Kasa nicknames arrive base64-encoded.
@@ -504,7 +505,7 @@ mod tests {
         let line = build_power_line(&energy, &device, 42).unwrap();
         assert_eq!(
             line,
-            "voltage_monitoring,device_ip=192.168.65.40,device_name=Dryer power=1.5,total=2.5 42"
+            "power,device=Dryer,ip=192.168.65.40,model=KP125M(US) power_w=1.5,energy_today_kwh=2.5 42"
         );
         let empty = json::parse(r#"{"error_code":0,"result":{"today_runtime":300}}"#).unwrap();
         assert!(build_power_line(&empty, &device, 42).is_none());

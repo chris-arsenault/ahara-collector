@@ -16,10 +16,11 @@ Read this before editing. [README.md](README.md) has the repository map.
 - **The Rust service stays dependency-free.** The appliance builds offline
   from a pinned flake; everything is std plus the test-vectored primitives
   in `service/src/crypto.rs`.
-- **Wire compatibility with house-sensors is a contract.** Line-protocol
-  measurement and field names must match the TrueNAS collectors
-  (`environment`, `voltage_monitoring`) so downstream buckets and
-  dashboards survive the cutover.
+- **This repo owns the reading schema.** The `environment` and `power`
+  measurements (docs/architecture.md) are the contract downstream
+  consumers build against: one field per quantity, SI units in the field
+  name, time only in the line timestamp. Change them deliberately, in the
+  architecture doc and CHANGELOG, never ad hoc in a poller.
 - **`make ci` is canonical.** Run it before considering any change done.
 
 ## Code map

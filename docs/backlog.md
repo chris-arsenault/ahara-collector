@@ -13,12 +13,11 @@ future-state behavior.
 - Sensor firmware pushes readings to `POST /ingest` on its own schedule,
   and polling becomes the fallback rather than the only path.
 
-## Cutover
+## Server side
 
-- The TrueNAS environment and voltage collectors are retired; the
-  collector is the sole producer for `environment-data` and
-  `voltage-data`, and the gateway's TrueNAS→IoT flows are removed
-  (docs/integration.md tracks the order).
+- A pull consumer exists on the server subnet and drains the spool into
+  durable storage (docs/integration.md is the contract); until then the
+  spool's bounded retention is the only persistence.
 
 ## Network
 

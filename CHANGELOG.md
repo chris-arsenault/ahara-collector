@@ -18,9 +18,10 @@ All notable user-visible changes are recorded here.
   the gateway-hosted relay attempt, whose off-subnet SSDP the WiiM devices
   ignored.
 - Environment sensors are discovered and polled from the collector with
-  the shared device credentials, producing byte-compatible `environment`
-  lines; Kasa KP125M polling over KLAP is implemented and marked
-  experimental pending hardware validation.
+  the shared device credentials, producing `environment` lines in the
+  repo's own schema (SI-unit fields, edge-normalized); Kasa KP125M polling
+  over KLAP produces `power` lines and is marked experimental pending
+  hardware validation.
 - Readings buffer in a bounded on-disk spool (oldest-dropped, crash
   tolerant) and are drained by TrueNAS through a single authenticated API
   port with at-least-once batch delivery; the same port serves health,
