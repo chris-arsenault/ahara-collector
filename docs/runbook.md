@@ -12,13 +12,39 @@ Decide before starting:
 - Where the device credentials will come from (a `credentials.json` per
   ADR-0003, or upload later).
 
-Your machine needs only `ssh` and `scp` — no nix, no checkout. Boot the
-NixOS installer USB on the S13, set a temporary root password
-(`sudo passwd`), note its DHCP address, then from your machine:
+Your machine needs only `ssh`, `scp`, and (for the credentials render) the
+AWS CLI — no nix, no checkout.
+
+One-time prep, from your machine — render the device credentials from the
+SSM parameters they already live in:
+
+```bash
+get() { aws ssm get-parameter --with-decryption --query Parameter.Value --output text --name "$1"; }
+cat > credentials.json <<EOF
+{
+  "envSensors": {
+    "username": "$(get /ahara/house-sensors/environment-sensors/device-user)",
+    "password": "$(get /ahara/house-sensors/environment-sensors/device-pass)"
+  },
+  "kasa": {
+    "username": "$(get /ahara/house-sensors/volt/kasa-username)",
+    "password": "$(get /ahara/house-sensors/volt/kasa-password)"
+  }
+}
+EOF
+```
+
+(In the managed environment run the `aws` calls through `with-cred --`;
+elsewhere any AWS-credentialed shell works. Delete the local file once it
+is on the appliance.)
+
+Boot the NixOS installer USB on the S13 — if no wire is available at the
+bench, `nmtui` gets the installer online — set a temporary root password
+(`sudo passwd`), note its address, then from your machine:
 
 ```bash
 scp ~/.ssh/s13-ops.pub root@INSTALLER_IP:/tmp/ops.pub
-scp credentials.json root@INSTALLER_IP:/tmp/credentials.json   # optional
+scp credentials.json root@INSTALLER_IP:/tmp/credentials.json
 ssh root@INSTALLER_IP
 ```
 
