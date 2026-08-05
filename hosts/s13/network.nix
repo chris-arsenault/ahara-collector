@@ -16,6 +16,20 @@ in
   networking.useDHCP = false;
   networking.useNetworkd = true;
 
+  # Console recovery tooling (nmtui): NetworkManager manages only wireless
+  # interfaces — lan0 and every wired port stay with systemd-networkd, whose
+  # static config is the appliance's real network identity. WiFi is for a
+  # keyboard-and-monitor session when the wire is unavailable, never the
+  # deployed path; the health gate still requires lan0.
+  networking.networkmanager = {
+    enable = true;
+    unmanaged = [
+      "interface-name:lan0"
+      "interface-name:en*"
+      "interface-name:eth*"
+    ];
+  };
+
   systemd.network.links."10-${n.interfaceName}" = {
     matchConfig.PermanentMACAddress = n.interfaceMac;
     linkConfig.Name = n.interfaceName;
