@@ -12,10 +12,9 @@ was off their subnet, and a relay process hosted on the gateway itself,
 which worked but made the default-drop routing appliance terminate device
 traffic, forced an input-chain path into its firewall generator, and left
 the relay unable to hear multicast. The house-sensors pollers on TrueNAS
-had the mirrored problem — reaching home-LAN devices only through
-gateway-forwarded broadcast flows, device credentials on the same host as
-every other service — and stopped working entirely at the subnet split;
-they are defunct, not migrated from.
+have the mirrored problem: they reach home-LAN devices only through
+gateway-forwarded broadcast flows, and their device credentials live on the
+same host as every other service.
 
 ## Decision
 
@@ -41,8 +40,7 @@ inspectable forward flows; the gateway goes back to being only a router.
 - Collector failure stops WiiM discovery and sensor collection, but no
   routed data path: the appliance is not in line for anything.
 - The gateway needs three declared flows for the appliance
-  (docs/integration.md); the directed-broadcast Airwave flows and the
-  TrueNAS→IoT polling flows served the defunct pollers and can simply be
-  removed.
+  (docs/integration.md); the interim directed-broadcast Airwave flows and
+  TrueNAS→IoT polling flows retire once cutover completes.
 - A future gateway-served IoT VLAN is a one-value re-address of this
   appliance, not a topology change.

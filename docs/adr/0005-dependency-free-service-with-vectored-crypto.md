@@ -22,7 +22,8 @@ is not a TLS stack, carries no public exposure, and python-kasa's
 implementation of the same construction is the interoperability reference.
 
 The Kasa module is marked experimental until a real KP125M confirms the
-handshake end to end.
+handshake; until then the plugs simply go uncollected, as they already are
+with the TrueNAS poller cut off by the firewall split.
 
 ## Alternatives considered
 

@@ -54,17 +54,11 @@ device, so both discovery directions work across the subnet split.
 devices by UDP broadcast, validates them against `/sensors`, and polls at
 1 Hz with the shared Basic credentials; the Kasa module (experimental,
 ADR-0005) discovers KP125M plugs on UDP 20002 and reads energy usage over
-KLAP sessions. Credentials are host state (ADR-0003); a module without
-credentials idles.
-
-This repo owns the reading schema. Two measurements, one field per
-quantity, units normalized at the edge, time only in the line timestamp
-(corrected by the device-reported sample age where available):
-
-| Measurement | Tags | Fields |
-| ----------- | ---- | ------ |
-| `environment` | `device`, `ip`, `model`, user tags | `temperature_c`, `humidity`, `pressure_pa`, `sample_age_ms` |
-| `power` | `device`, `ip`, `model` | `power_w`, `voltage_v`, `current_a`, `energy_today_kwh` |
+KLAP sessions. Both emit InfluxDB line protocol with the exact measurement
+and field names the TrueNAS house-sensors collectors produce
+(`environment`, `voltage_monitoring`), so the downstream buckets survive
+the cutover unchanged. Credentials are host state (ADR-0003); a module
+without credentials idles.
 
 **Spool and API** (ADR-0002). Readings append to a bounded on-disk spool
 (size-capped, oldest-dropped, crash-tolerant) and wait for TrueNAS to pull

@@ -60,10 +60,9 @@ regain the Suricata inspection the gateway-hosted relay lost:
 
 `collectorIp` should come from the gateway's site values (a new
 `collectorIp` value, or an `extraDnsHosts` entry — a `collector` DNS record
-under `local.ahara.io` is worth adding at the same time). The
-`truenas-to-iot-discovery`, `iot-discovery-replies`, and
-`truenas-to-iot-poll` flows served the defunct TrueNAS pollers and can be
-removed outright.
+under `local.ahara.io` is worth adding at the same time). Once the TrueNAS
+house-sensors containers retire, `truenas-to-iot-discovery`,
+`iot-discovery-replies`, and `truenas-to-iot-poll` retire with them.
 
 ## airwave: target change
 
@@ -77,37 +76,45 @@ AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.65.3
 Nothing else in airwave changes: it still sends M-SEARCH from :1901,
 NOTIFYs from :1900, and receives replies on :1901.
 
-## TrueNAS: the pull consumer
+## TrueNAS: the pull job
 
-Whatever consumes readings on the server side (the defunct house-sensors
-pollers are not being migrated; their replacement builds against this
-contract fresh):
+A small container in the house-sensors stack drains the collector and
+writes to InfluxDB. Contract:
 
 1. `GET http://192.168.65.3:8850/readings/next` with
    `authorization: Bearer <token>`.
    - `204` — spool empty; sleep (10 s is fine) and retry.
    - `200` — body `{"batchId": "...", "lines": "..."}`; `lines` is
-     newline-separated InfluxDB line protocol in this repo's schema
-     (measurements `environment` and `power`; docs/architecture.md).
-2. Write the lines wherever the consumer stores readings — for InfluxDB,
-   route by measurement to a bucket of the consumer's choosing and POST to
-   `/api/v2/write?precision=ns`; drop and count anything unrecognized.
+     newline-separated InfluxDB line protocol.
+2. Route each line by measurement and POST to
+   `http://192.168.66.3:18086/api/v2/write?org=ahara&bucket=<bucket>&precision=ns`:
+   `environment` → `environment-data`, `voltage_monitoring` →
+   `voltage-data` (anything else → drop and count).
 3. Only after every write succeeds:
    `POST /readings/ack` with `{"batchId": "..."}`.
 4. On any failure, do not ack — the batch is re-served. Duplicate writes
-   are safe in Influx (idempotent per measurement/tags/timestamp).
+   are safe (idempotent per measurement/tags/timestamp).
 
-Configuration: `COLLECTOR_URL` and `COLLECTOR_TOKEN` (populated once from
-`sudo cat /var/lib/ahara-collector/api-token`). Poll every 10 s; each
-batch is at most one spool segment (4 MiB by default).
+Configuration: `COLLECTOR_URL`, `COLLECTOR_TOKEN` (suggested SSM path
+`/ahara/house-sensors/collector/api-token`, populated from
+`sudo cat /var/lib/ahara-collector/api-token`), plus the stack's existing
+Influx settings. Poll every 10 s; each batch is at most one spool segment
+(4 MiB by default).
 
-## Bring-up order
+## Cutover order
+
+The TrueNAS device pollers are dark — the firewall split cut them off from
+the devices — so there is no parallel-run period: the collector plus the
+pull job is what restores data flow into the existing buckets, downsampler,
+and dashboards.
 
 1. Deploy the collector; add the three gateway flows; verify
    `s13-health-check` and the VM-tested paths against real devices.
-2. Switch `AIRWAVE_SSDP_TARGETS`; confirm WiiM discovery in airwave; then
-   remove ahara-vpn's directed-broadcast Airwave flows and the three
-   TrueNAS→IoT flows, all of which served the defunct paths.
-3. Validate the Kasa module against a real KP125M (ADR-0005).
-4. Stand up the pull consumer with the collector token when there is
-   something to write into.
+2. Switch `AIRWAVE_SSDP_TARGETS`; confirm WiiM discovery in airwave; remove
+   the directed-broadcast flows from ahara-vpn.
+3. Add the pull job with the collector token; confirm `environment` and
+   `voltage_monitoring` land in their buckets and the dashboards fill in
+   again.
+4. Validate the Kasa module against a real KP125M (ADR-0005).
+5. Remove the dead TrueNAS environment/voltage poller containers and the
+   TrueNAS→IoT gateway flows they used.
