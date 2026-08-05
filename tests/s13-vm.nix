@@ -127,7 +127,7 @@ let
         b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
         b"\r\n"
     )
-    s.sendto(msearch, ("192.168.65.3", 1900))
+    s.sendto(msearch, ("192.168.65.10", 1900))
     data, addr = s.recvfrom(4096)
     assert b"200 OK" in data, data
     assert b"uuid:vm-wiim" in data, data
@@ -220,7 +220,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("interface renamed by MAC and addressed"):
         collector.wait_until_succeeds("ip link show lan0")
-        collector.wait_until_succeeds("ip -4 addr show lan0 | grep -qF 'inet 192.168.65.3/24'")
+        collector.wait_until_succeeds("ip -4 addr show lan0 | grep -qF 'inet 192.168.65.10/24'")
         collector.succeed("ip route show default | grep -q 'via 192.168.65.1'")
 
     with subtest("firewall: default drop with the declared surface only"):
@@ -236,13 +236,13 @@ pkgs.testers.runNixOSTest {
     with subtest("collector service runs and binds its sockets"):
         collector.wait_for_unit("ahara-collector.service")
         collector.wait_until_succeeds("ss -uln | grep -qF '0.0.0.0:1900'")
-        collector.wait_until_succeeds("ss -uln | grep -qF '192.168.65.3:1901'")
-        collector.wait_until_succeeds("ss -tln | grep -qF '192.168.65.3:8850'")
+        collector.wait_until_succeeds("ss -uln | grep -qF '192.168.65.10:1901'")
+        collector.wait_until_succeeds("ss -tln | grep -qF '192.168.65.10:8850'")
 
     with subtest("health endpoint is open; data endpoints are token-gated"):
-        peer.wait_until_succeeds("curl -sf http://192.168.65.3:8850/health | grep -q '\"status\":\"ok\"'")
-        peer.fail("curl -sf http://192.168.65.3:8850/readings/next")
-        peer.fail("curl -sf -H 'authorization: Bearer wrong' http://192.168.65.3:8850/metrics")
+        peer.wait_until_succeeds("curl -sf http://192.168.65.10:8850/health | grep -q '\"status\":\"ok\"'")
+        peer.fail("curl -sf http://192.168.65.10:8850/readings/next")
+        peer.fail("curl -sf -H 'authorization: Bearer wrong' http://192.168.65.10:8850/metrics")
 
     token = collector.succeed("cat /var/lib/ahara-collector/api-token").strip()
     auth = f"-H 'authorization: Bearer {token}'"
@@ -261,22 +261,22 @@ pkgs.testers.runNixOSTest {
     with subtest("sensor discovery, polling, and spooling"):
         peer.wait_for_unit("mock-env-sensor.service")
         collector.wait_until_succeeds(
-            f"curl -sf {auth} http://192.168.65.3:8850/devices | grep -q 'VM-SENSOR-1'",
+            f"curl -sf {auth} http://192.168.65.10:8850/devices | grep -q 'VM-SENSOR-1'",
             timeout=120,
         )
         peer.wait_until_succeeds(
-            f"curl -sf {auth} http://192.168.65.3:8850/readings/next | grep -q 'environment,'",
+            f"curl -sf {auth} http://192.168.65.10:8850/readings/next | grep -q 'environment,'",
             timeout=120,
         )
 
     with subtest("TrueNAS pull cycle: drain then ack"):
-        batch = peer.succeed(f"curl -sf {auth} http://192.168.65.3:8850/readings/next")
+        batch = peer.succeed(f"curl -sf {auth} http://192.168.65.10:8850/readings/next")
         doc = json.loads(batch)
         assert "temperature_c=21.5" in doc["lines"], doc["lines"]
         assert "room=vm" in doc["lines"], doc["lines"]
         ack = json.dumps({"batchId": doc["batchId"]})
         out = peer.succeed(
-            f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.65.3:8850/readings/ack"
+            f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.65.10:8850/readings/ack"
         )
         assert '"acked":true' in out, out
 
@@ -285,14 +285,14 @@ pkgs.testers.runNixOSTest {
         peer.succeed("airwave-probe")
 
     with subtest("ingest accepts device pushes with Basic auth"):
-        peer.fail("curl -sf -X POST -d 'm v=1i 1' http://192.168.65.3:8850/ingest")
+        peer.fail("curl -sf -X POST -d 'm v=1i 1' http://192.168.65.10:8850/ingest")
         out = peer.succeed(
-            "curl -sf -X POST -u admin:vmpass -d 'pushed v=42i 7' http://192.168.65.3:8850/ingest"
+            "curl -sf -X POST -u admin:vmpass -d 'pushed v=42i 7' http://192.168.65.10:8850/ingest"
         )
         assert '"accepted":1' in out, out
 
     with subtest("metrics render for the pull job"):
-        metrics = peer.succeed(f"curl -sf {auth} http://192.168.65.3:8850/metrics")
+        metrics = peer.succeed(f"curl -sf {auth} http://192.168.65.10:8850/metrics")
         assert "collector_env_polls_ok_total" in metrics
         assert "collector_spool_bytes" in metrics
         assert "collector_host_load1" in metrics

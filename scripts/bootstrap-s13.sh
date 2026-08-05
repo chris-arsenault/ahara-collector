@@ -14,7 +14,7 @@ device credentials file).
   ssh root@INSTALLER_IP
   nix run github:chris-arsenault/ahara-collector#bootstrap-s13 -- \
     --disk /dev/disk/by-id/ID --key-file /tmp/ops.pub \
-    --address 192.168.65.3 --home-lan-cidr 192.168.65.0/24 \
+    --address 192.168.65.10 --home-lan-cidr 192.168.65.0/24 \
     --router-ip 192.168.65.1 \
     --credentials-file /tmp/credentials.json
 

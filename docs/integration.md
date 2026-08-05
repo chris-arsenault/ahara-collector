@@ -21,7 +21,7 @@ regain the Suricata inspection the gateway-hosted relay lost:
   sourceZone = "servers";
   source = truenasIp;
   destZone = "home";
-  destination = collectorIp; # 192.168.65.3
+  destination = collectorIp; # 192.168.65.10
   inspect = true;
   protocol = "udp";
   ports = [ 1900 ];
@@ -70,7 +70,7 @@ house-sensors containers retire, `truenas-to-iot-discovery`,
 address (`192.168.66.1`). Point it at the collector instead:
 
 ```
-AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.65.3
+AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.65.10
 ```
 
 Nothing else in airwave changes: it still sends M-SEARCH from :1901,
@@ -81,7 +81,7 @@ NOTIFYs from :1900, and receives replies on :1901.
 A small container in the house-sensors stack drains the collector and
 writes to InfluxDB. Contract:
 
-1. `GET http://192.168.65.3:8850/readings/next` with
+1. `GET http://192.168.65.10:8850/readings/next` with
    `authorization: Bearer <token>`.
    - `204` — spool empty; sleep (10 s is fine) and retry.
    - `200` — body `{"batchId": "...", "lines": "..."}`; `lines` is
