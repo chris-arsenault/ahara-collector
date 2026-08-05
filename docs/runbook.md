@@ -15,8 +15,21 @@ Decide before starting:
 Your machine needs only `ssh`, `scp`, and (for the credentials render) the
 AWS CLI — no nix, no checkout.
 
-One-time prep, from your machine — render the device credentials from the
-SSM parameters they already live in:
+One-time prep, from your machine.
+
+Generate the admin keypair the `ops` user will trust (skip if
+`~/.ssh/s13-ops` already exists):
+
+```bash
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/s13-ops -C "s13-ops"
+```
+
+The public half is authorized on the appliance at install; the private key
+stays on your machine (`ssh -i ~/.ssh/s13-ops ops@…`, or add it to
+`~/.ssh/config` for the host).
+
+Render the device credentials from the SSM parameters they already live
+in:
 
 ```bash
 get() { aws ssm get-parameter --with-decryption --query Parameter.Value --output text --name "$1"; }
