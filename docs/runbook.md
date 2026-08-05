@@ -58,7 +58,7 @@ bench, `nmtui` gets the installer online — then at its console:
 sudo passwd                           # temporary ROOT password (installer-only)
 test -d /sys/firmware/efi/efivars     # must succeed: UEFI boot
 ip -brief address                     # note the address = INSTALLER_IP
-ls -l /dev/disk/by-id/                # note the whole-disk NVMe id = INSTALL_DISK
+ls -l /dev/disk/by-id/                # note the whole-disk id = INSTALL_DISK
 ```
 
 The password exists only in the live installer and dies with it. Pick the

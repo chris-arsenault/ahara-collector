@@ -38,9 +38,12 @@
 
       # The install disk is a bootstrap flag, never committed: callers pass
       # --argstr disk /dev/disk/by-id/... (the bootstrap script does this).
+      # disko's CLI calls this with extra arguments (flake, lib, ...) beyond
+      # the --argstr it is given; the ellipsis is load-bearing.
       diskoConfigurations.s13 =
         {
           disk ? "/dev/disk/by-id/REPLACE_WITH_INSTALL_DISK",
+          ...
         }:
         import ./hosts/s13/disko.nix { inherit disk; };
 
