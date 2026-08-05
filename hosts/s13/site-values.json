@@ -1,0 +1,48 @@
+{
+  "_comment": "PLACEHOLDER values - what CI and the VM test build against. A real machine's store is host state at /var/lib/ahara-collector/site-values.json, rendered by the bootstrap installer and overlaid by the updater on every build. Edit that file (or re-bootstrap), never this one.",
+  "hostName": "s13",
+  "stateVersion": "26.05",
+  "adminAuthorizedKeys": [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLACEHOLDERPLACEHOLDERPLACEHOLDERPLACEHOLD ops@placeholder"
+  ],
+  "network": {
+    "interfaceMac": "aa:bb:cc:dd:ee:01",
+    "homeLanCidr": "192.168.65.0/24",
+    "address": "192.168.65.3",
+    "routerIp": "192.168.65.1",
+    "dnsServers": ["9.9.9.9", "149.112.112.112"],
+    "truenasIp": "192.168.66.3"
+  },
+  "deployment": {
+    "repoUrl": "https://github.com/chris-arsenault/ahara-collector",
+    "branch": "release",
+    "pollIntervalMinutes": 2
+  },
+  "api": {
+    "port": 8850
+  },
+  "airwaveSsdp": {
+    "enable": true,
+    "relayPort": 1901,
+    "responseWindowSeconds": 4
+  },
+  "envSensors": {
+    "enable": true,
+    "discoveryPort": 12343,
+    "devicePort": 80,
+    "pollIntervalSeconds": 1,
+    "discoveryIntervalHours": 4
+  },
+  "kasa": {
+    "enable": true,
+    "discoveryPort": 20002,
+    "devicePort": 80,
+    "pollIntervalSeconds": 1,
+    "discoveryIntervalHours": 4,
+    "staticDevices": []
+  },
+  "spool": {
+    "maxBytes": 268435456,
+    "segmentBytes": 4194304
+  }
+}

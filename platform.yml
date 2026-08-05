@@ -1,0 +1,4 @@
+project: ahara-collector
+prefix: ahara-collector
+stack:
+  - nix

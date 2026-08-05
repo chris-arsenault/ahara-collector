@@ -1,0 +1,33 @@
+name: CI
+
+permissions:
+  id-token: write
+  contents: read
+  actions: read
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    uses: chris-arsenault/ahara/.github/workflows/ci.yml@main
+    secrets: inherit
+
+  # Pull-based deploy (ADR-0004): advancing this ref is the entire deploy
+  # from CI's side. The appliance polls and activates it, then reports
+  # health without gating the release; only activation failure rolls back.
+  publish-release:
+    name: Publish collector release
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Advance release pointer
+        run: git push origin "${GITHUB_SHA}:refs/heads/release"

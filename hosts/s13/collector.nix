@@ -1,0 +1,100 @@
+# The collector service: SSDP relay for Airwave, device pollers, bounded
+# spool, and the single-port pull API. All topology arrives as one JSON
+# config document rendered from site.nix; secrets never do — the device
+# credentials file and the API token are host state passed through systemd
+# credentials, invisible to the store and the environment.
+{
+  pkgs,
+  site,
+  collectorPackage,
+  ...
+}:
+let
+  n = site.network;
+  c = site.collector;
+  stateDir = "/var/lib/ahara-collector";
+
+  configJson = pkgs.writeText "ahara-collector-config.json" (
+    builtins.toJSON {
+      bindAddress = n.address;
+      homeCidr = n.homeLanCidr;
+      homeBroadcast = n.homeBroadcast;
+      apiPort = site.api.port;
+      airwaveSsdp = c.airwaveSsdp;
+      envSensors = c.envSensors;
+      kasa = c.kasa;
+      spool = c.spool;
+    }
+  );
+in
+{
+  environment.systemPackages = [ collectorPackage ];
+
+  # Host state the service depends on but must not own: the device
+  # credentials file (scp'd or pasted by the operator, empty until then) and
+  # the API bearer token (generated once at first boot).
+  systemd.tmpfiles.rules = [
+    "d ${stateDir} 0750 root root -"
+    "f ${stateDir}/credentials.json 0600 root root -"
+  ];
+
+  systemd.services.ahara-collector-token = {
+    description = "Generate the collector API bearer token on first boot";
+    wantedBy = [ "multi-user.target" ];
+    unitConfig.ConditionPathExists = "!${stateDir}/api-token";
+    serviceConfig = {
+      Type = "oneshot";
+      UMask = "0077";
+    };
+    path = [ pkgs.coreutils ];
+    script = ''
+      head -c 96 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | cut -c1-48 \
+        > ${stateDir}/api-token
+      chmod 600 ${stateDir}/api-token
+      echo "API token generated; read it with: sudo cat ${stateDir}/api-token"
+    '';
+  };
+
+  systemd.services.ahara-collector = {
+    description = "Ahara IoT collector (SSDP relay, device pollers, pull API)";
+    wantedBy = [ "multi-user.target" ];
+    requires = [ "ahara-collector-token.service" ];
+    after = [
+      "network-online.target"
+      "nftables.service"
+      "ahara-collector-token.service"
+    ];
+    wants = [ "network-online.target" ];
+
+    serviceConfig = {
+      ExecStart = "${pkgs.lib.getExe collectorPackage} run --config ${configJson} --token-file \${CREDENTIALS_DIRECTORY}/api-token --credentials \${CREDENTIALS_DIRECTORY}/devices.json";
+      LoadCredential = [
+        "api-token:${stateDir}/api-token"
+        "devices.json:${stateDir}/credentials.json"
+      ];
+      Restart = "on-failure";
+      RestartSec = "2s";
+
+      DynamicUser = true;
+      StateDirectory = "ahara-collector/spool";
+      NoNewPrivileges = true;
+      PrivateDevices = true;
+      PrivateTmp = true;
+      ProtectSystem = "strict";
+      ProtectHome = true;
+      ProtectKernelTunables = true;
+      ProtectKernelModules = true;
+      ProtectControlGroups = true;
+      RestrictAddressFamilies = [ "AF_INET" ];
+      RestrictNamespaces = true;
+      LockPersonality = true;
+      MemoryDenyWriteExecute = true;
+      CapabilityBoundingSet = [ ];
+      SystemCallFilter = [
+        "@system-service"
+        "~@privileged"
+        "~@resources"
+      ];
+    };
+  };
+}

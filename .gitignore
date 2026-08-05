@@ -1,0 +1,15 @@
+# Nix build outputs
+result
+result-*
+
+# Rust build outputs
+target/
+
+# Private keys never belong in this repo
+*.pem
+id_*
+*.ssh
+!*.pub
+
+# Device credentials are host state, never repo content
+credentials.json

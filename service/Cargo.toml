@@ -1,0 +1,24 @@
+[package]
+name = "ahara-collector"
+version = "0.1.0"
+edition = "2021"
+
+# Dependency-free on purpose: the appliance builds from a pinned flake with
+# no crate registry access, so everything here is std plus hand-written,
+# test-vectored primitives.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"
+
+[[bin]]
+name = "ahara-collector"
+path = "src/main.rs"
+
+[lib]
+name = "ahara_collector"
+path = "src/lib.rs"
