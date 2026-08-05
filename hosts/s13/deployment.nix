@@ -164,6 +164,7 @@ in
     unitConfig.ConditionPathExists = "!/var/lib/ahara-collector/deploy-key";
     serviceConfig = {
       Type = "oneshot";
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.openssh ];

@@ -44,6 +44,9 @@ in
     unitConfig.ConditionPathExists = "!${stateDir}/api-token";
     serviceConfig = {
       Type = "oneshot";
+      # Stays active after completion: the collector service Requires this
+      # unit, and a plain oneshot reads as inactive once it has run.
+      RemainAfterExit = true;
       UMask = "0077";
     };
     path = [ pkgs.coreutils ];
