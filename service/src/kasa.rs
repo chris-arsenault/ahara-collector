@@ -12,9 +12,9 @@
 
 use crate::config::{BasicCredentials, PollerConfig};
 use crate::crypto;
+use crate::envelope;
 use crate::http;
 use crate::json::{self, Json};
-use crate::lineproto::{self, FieldValue};
 use crate::metrics::{self, Metrics};
 use crate::sensors::sleep_interruptible;
 use crate::spool::Spool;
@@ -243,43 +243,33 @@ impl KlapSession {
     }
 }
 
-/// Build the voltage_monitoring line from get_energy_usage (and optionally
-/// device info). Field names mirror the TrueNAS voltage collector: power in
-/// W, total in kWh; voltage/current only when the device reports them.
-pub fn build_power_line(
+/// Keys whose presence marks an energy payload as carrying a reading, in
+/// the vendor's vocabulary and units (mW, Wh, mV, mA).
+const ENERGY_KEYS: [&str; 4] = ["current_power", "today_energy", "voltage_mv", "current_ma"];
+
+/// Build the reading envelope from get_energy_usage: the result object
+/// verbatim, vendor keys and units untouched. house-sensors owns the
+/// storage names and conversions (ADR-0006).
+pub fn build_power_reading(
     energy: &Json,
     device: &KasaDevice,
     now_ns: i64,
 ) -> Option<String> {
     let result = energy.get("result").unwrap_or(energy);
-    let mut fields: Vec<(String, FieldValue)> = Vec::new();
-    if let Some(mw) = result.get("current_power").and_then(Json::as_f64) {
-        fields.push(("power".to_string(), FieldValue::Float(mw / 1000.0)));
-    }
-    if let Some(wh) = result.get("today_energy").and_then(Json::as_f64) {
-        fields.push(("total".to_string(), FieldValue::Float(wh / 1000.0)));
-    }
-    if let Some(mv) = result.get("voltage_mv").and_then(Json::as_f64) {
-        fields.push(("voltage".to_string(), FieldValue::Float(mv / 1000.0)));
-    }
-    if let Some(ma) = result.get("current_ma").and_then(Json::as_f64) {
-        fields.push(("current".to_string(), FieldValue::Float(ma / 1000.0)));
-    }
-    if fields.is_empty() {
+    if !ENERGY_KEYS
+        .iter()
+        .any(|k| result.get(k).and_then(Json::as_f64).is_some())
+    {
         return None;
     }
-    let tags = vec![
-        (
-            "device_name".to_string(),
-            device
-                .name
-                .clone()
-                .or_else(|| device.device_id.clone())
-                .unwrap_or_else(|| device.ip.to_string()),
-        ),
-        ("device_ip".to_string(), device.ip.to_string()),
-    ];
-    lineproto::line("voltage_monitoring", &tags, &fields, now_ns)
+    let identity = envelope::device(
+        &device.ip.to_string(),
+        device.name.as_deref(),
+        device.model.as_deref(),
+        device.device_id.as_deref(),
+        &[],
+    );
+    envelope::reading("kasa", identity, now_ns, result.clone())
 }
 
 /// Kasa nicknames arrive base64-encoded.
@@ -428,7 +418,7 @@ impl KasaModule {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| d.as_nanos() as i64)
             .unwrap_or(0);
-        build_power_line(&energy, device, now_ns)
+        build_power_reading(&energy, device, now_ns)
             .ok_or_else(|| "energy payload had no usable fields".to_string())
     }
 }
@@ -489,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn power_line_from_energy_usage() {
+    fn power_reading_from_energy_usage() {
         let device = KasaDevice {
             ip: "192.168.65.40".parse().unwrap(),
             http_port: 80,
@@ -501,13 +491,17 @@ mod tests {
             r#"{"error_code":0,"result":{"current_power":1500,"today_energy":2500,"today_runtime":300}}"#,
         )
         .unwrap();
-        let line = build_power_line(&energy, &device, 42).unwrap();
+        let reading = build_power_reading(&energy, &device, 42).unwrap();
         assert_eq!(
-            line,
-            "voltage_monitoring,device_ip=192.168.65.40,device_name=Dryer power=1.5,total=2.5 42"
+            reading,
+            concat!(
+                r#"{"device":{"deviceId":"8012ABC","ip":"192.168.65.40","model":"KP125M(US)","name":"Dryer"},"#,
+                r#""module":"kasa","timestampNs":42,"#,
+                r#""values":{"current_power":1500,"today_energy":2500,"today_runtime":300}}"#
+            )
         );
         let empty = json::parse(r#"{"error_code":0,"result":{"today_runtime":300}}"#).unwrap();
-        assert!(build_power_line(&empty, &device, 42).is_none());
+        assert!(build_power_reading(&empty, &device, 42).is_none());
     }
 
     #[test]

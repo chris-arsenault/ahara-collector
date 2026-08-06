@@ -1,9 +1,9 @@
-//! Bounded on-disk spool: line-protocol readings wait here until the
-//! TrueNAS pull job drains them. Readings append to an open segment; full
-//! segments close and queue in order; when the byte cap is hit the oldest
-//! closed segment is dropped (newest data wins — this is telemetry, not a
-//! ledger). Delivery is at-least-once: a batch is one closed segment,
-//! deleted only when the puller acknowledges it.
+//! Bounded on-disk spool: reading envelopes (JSON lines) wait here until
+//! the house-sensors drain pulls them. Readings append to an open segment;
+//! full segments close and queue in order; when the byte cap is hit the
+//! oldest closed segment is dropped (newest data wins — this is telemetry,
+//! not a ledger). Delivery is at-least-once: a batch is one closed
+//! segment, deleted only when the puller acknowledges it.
 //!
 //! Crash tolerance is structural: appends are flushed line-wise, the reader
 //! ignores a torn trailing line, and acknowledgement is a file unlink.
@@ -26,14 +26,14 @@ struct Inner {
     pub dropped_segments: u64,
 }
 
-const CURRENT: &str = "current.lp";
+const CURRENT: &str = "current.jsonl";
 
 fn segment_name(seq: u64) -> String {
-    format!("seg-{seq:016}.lp")
+    format!("seg-{seq:016}.jsonl")
 }
 
 fn parse_segment_name(name: &str) -> Option<u64> {
-    let rest = name.strip_prefix("seg-")?.strip_suffix(".lp")?;
+    let rest = name.strip_prefix("seg-")?.strip_suffix(".jsonl")?;
     if rest.len() == 16 && rest.bytes().all(|b| b.is_ascii_digit()) {
         rest.parse().ok()
     } else {
@@ -306,8 +306,8 @@ mod tests {
         let dir = temp_dir("ack");
         let spool = Spool::open(&dir, 64, 4096).unwrap();
         assert!(!spool.ack("../../etc/passwd").unwrap());
-        assert!(!spool.ack("seg-notanumber.lp").unwrap());
-        assert!(!spool.ack("seg-0000000000000009.lp").unwrap());
+        assert!(!spool.ack("seg-notanumber.jsonl").unwrap());
+        assert!(!spool.ack("seg-0000000000000009.jsonl").unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 

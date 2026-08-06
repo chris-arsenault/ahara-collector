@@ -16,10 +16,10 @@ Read this before editing. [README.md](README.md) has the repository map.
 - **The Rust service stays dependency-free.** The appliance builds offline
   from a pinned flake; everything is std plus the test-vectored primitives
   in `service/src/crypto.rs`.
-- **Wire compatibility with house-sensors is a contract.** Line-protocol
-  measurement and field names must match the TrueNAS collectors
-  (`environment`, `voltage_monitoring`) so downstream buckets and
-  dashboards survive the cutover.
+- **The collector never speaks the data schema.** house-sensors owns every
+  measurement, field, and bucket name (ADR-0006); this service ships
+  device-native reading envelopes with verbatim device keys and units. The
+  envelope format in `docs/integration.md` is the cross-repo contract.
 - **`make ci` is canonical.** Run it before considering any change done.
 
 ## Code map

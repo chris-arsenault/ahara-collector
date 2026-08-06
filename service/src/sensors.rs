@@ -1,13 +1,13 @@
 //! Environment-sensor module: the AtomS3U/ENV-III firmware speaks UDP
 //! discovery on the home broadcast and an HTTP `/sensors` endpoint behind
-//! shared Basic auth. Readings become `environment` measurement lines with
-//! the exact field names the TrueNAS house-sensors collector emits, so the
-//! downstream buckets and dashboards need no changes at cutover.
+//! shared Basic auth. Each poll becomes a device-native reading envelope
+//! carrying the `/sensors` payload verbatim (ADR-0006); house-sensors
+//! owns every storage name downstream.
 
 use crate::config::{BasicCredentials, PollerConfig};
+use crate::envelope;
 use crate::http;
 use crate::json::{self, Json};
-use crate::lineproto::{self, FieldValue};
 use crate::metrics::{self, Metrics};
 use crate::spool::Spool;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
@@ -106,33 +106,30 @@ pub fn is_sensor_payload(body: &str) -> bool {
     })
 }
 
-/// One reading → one line. `now_ns` is the server clock at poll time; the
-/// timestamp is corrected by the device-reported sample age when present,
-/// falling back to the device clock, then the server clock — the same
-/// preference order as the Python collector.
-pub fn build_environment_line(body: &str, device: &EnvDevice, now_ns: i64) -> Option<String> {
-    let doc = json::parse(body).ok()?;
-    let mut fields: Vec<(String, FieldValue)> = Vec::new();
+/// Keys whose presence marks a payload as carrying an actual reading;
+/// firmware variants report bare or suffixed names.
+const READING_KEYS: [&str; 6] = [
+    "temperature_c",
+    "temperature",
+    "humidity",
+    "pressure_pa",
+    "pressure",
+    "pressure_hpa",
+];
 
-    fn num_field(doc: &Json, fields: &mut Vec<(String, FieldValue)>, source_key: &str, out_key: &str) {
-        if let Some(v) = doc.get(source_key).and_then(Json::as_f64) {
-            fields.push((out_key.to_string(), FieldValue::Float(v)));
-        }
+/// One poll → one envelope carrying the `/sensors` payload verbatim.
+/// `now_ns` is the server clock at poll time; the measurement timestamp is
+/// corrected by the device-reported sample age when present, falling back
+/// to the device clock, then the server clock.
+pub fn build_environment_reading(body: &str, device: &EnvDevice, now_ns: i64) -> Option<String> {
+    let doc = json::parse(body).ok()?;
+    // Only status keys and no readings means the poll was useless.
+    if !READING_KEYS
+        .iter()
+        .any(|k| doc.get(k).and_then(Json::as_f64).is_some())
+    {
+        return None;
     }
-    // Firmware variants report either bare or suffixed names.
-    num_field(&doc, &mut fields, "temperature_c", "temperature_c");
-    if !fields.iter().any(|(k, _)| k == "temperature_c") {
-        num_field(&doc, &mut fields, "temperature", "temperature_c");
-    }
-    num_field(&doc, &mut fields, "temperature_f", "temperature_f");
-    num_field(&doc, &mut fields, "humidity", "humidity");
-    num_field(&doc, &mut fields, "pressure_pa", "pressure_pa");
-    if !fields.iter().any(|(k, _)| k == "pressure_pa") {
-        num_field(&doc, &mut fields, "pressure", "pressure_pa");
-    }
-    num_field(&doc, &mut fields, "pressure_hpa", "pressure_hpa");
-    num_field(&doc, &mut fields, "timestamp_ms", "timestamp_ms");
-    num_field(&doc, &mut fields, "sample_age_ms", "sample_age_ms");
 
     let sample_age_ms = doc.get("sample_age_ms").and_then(Json::as_f64);
     let device_timestamp_ms = doc.get("timestamp_ms").and_then(Json::as_f64);
@@ -141,66 +138,15 @@ pub fn build_environment_line(body: &str, device: &EnvDevice, now_ns: i64) -> Op
         (None, Some(ts)) => (ts * 1e6) as i64,
         (None, None) => now_ns,
     };
-    if sample_age_ms.is_some() {
-        fields.push((
-            "sample_time_corrected_ms".to_string(),
-            FieldValue::Float(timestamp_ns as f64 / 1e6),
-        ));
-    }
-    fields.push((
-        "timestamp_iso".to_string(),
-        FieldValue::Str(iso_utc(timestamp_ns)),
-    ));
 
-    // Only a timestamp and no readings means the poll was useless.
-    if !fields
-        .iter()
-        .any(|(k, _)| matches!(k.as_str(), "temperature_c" | "humidity" | "pressure_pa" | "pressure_hpa"))
-    {
-        return None;
-    }
-
-    let mut tags: Vec<(String, String)> = vec![
-        ("device".to_string(), device.name.clone()),
-        ("ip".to_string(), device.ip.to_string()),
-    ];
-    if let Some(model) = &device.model {
-        tags.push(("model".to_string(), model.clone()));
-    }
-    if let Some(id) = &device.device_id {
-        tags.push(("device_id".to_string(), id.clone()));
-    }
-    tags.extend(device.tags.iter().cloned());
-
-    lineproto::line("environment", &tags, &fields, timestamp_ns)
-}
-
-/// Unix-nanoseconds → "YYYY-MM-DDTHH:MM:SSZ", no external time library.
-/// Civil-date conversion per Howard Hinnant's algorithm.
-pub fn iso_utc(timestamp_ns: i64) -> String {
-    let secs = timestamp_ns.div_euclid(1_000_000_000);
-    let days = secs.div_euclid(86_400);
-    let secs_of_day = secs.rem_euclid(86_400);
-    let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
-        secs_of_day / 3600,
-        (secs_of_day % 3600) / 60,
-        secs_of_day % 60
-    )
-}
-
-fn civil_from_days(days_from_epoch: i64) -> (i64, u32, u32) {
-    let z = days_from_epoch + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let year = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-    (if month <= 2 { year + 1 } else { year }, month, day)
+    let identity = envelope::device(
+        &device.ip.to_string(),
+        Some(&device.name),
+        device.model.as_deref(),
+        device.device_id.as_deref(),
+        &device.tags,
+    );
+    envelope::reading("envSensors", identity, timestamp_ns, doc)
 }
 
 pub struct EnvSensorModule {
@@ -344,7 +290,7 @@ impl EnvSensorModule {
             .duration_since(SystemTime::UNIX_EPOCH)
             .ok()?
             .as_nanos() as i64;
-        build_environment_line(&body, device, now_ns)
+        build_environment_reading(&body, device, now_ns)
     }
 }
 
@@ -395,26 +341,30 @@ mod tests {
     }
 
     #[test]
-    fn environment_line_matches_house_sensors_shape() {
+    fn environment_reading_is_a_device_native_envelope() {
         let body = r#"{"temperature_c": 21.5, "humidity": 45.1, "pressure_pa": 101325.0,
                         "sample_age_ms": 50.0}"#;
-        // 2026-06-30T03:00:00Z in ns, matching the Python test's fixed time.
         let now_ns: i64 = 1_782_788_400_000_000_000;
-        let line = build_environment_line(body, &device(), now_ns).unwrap();
-        assert!(line.starts_with(
-            "environment,device=Office\\ Sensor,device_id=ATOM3U-ENV3-005,ip=192.168.65.42,model=ENV3,room=office\\ lab "
-        ), "{line}");
-        assert!(line.contains("humidity=45.1"), "{line}");
-        assert!(line.contains("sample_age_ms=50"), "{line}");
-        assert!(line.contains("sample_time_corrected_ms="), "{line}");
-        // Corrected timestamp: 50 ms before the poll.
-        assert!(line.ends_with(&format!(" {}", now_ns - 50_000_000)), "{line}");
+        let reading = build_environment_reading(body, &device(), now_ns).unwrap();
+        assert_eq!(
+            reading,
+            format!(
+                concat!(
+                    r#"{{"device":{{"deviceId":"ATOM3U-ENV3-005","ip":"192.168.65.42","#,
+                    r#""model":"ENV3","name":"Office Sensor","tags":{{"room":"office lab"}}}},"#,
+                    r#""module":"envSensors","timestampNs":{},"#,
+                    r#""values":{{"humidity":45.1,"pressure_pa":101325,"sample_age_ms":50,"temperature_c":21.5}}}}"#
+                ),
+                // Corrected timestamp: 50 ms before the poll.
+                now_ns - 50_000_000
+            )
+        );
     }
 
     #[test]
-    fn line_requires_a_reading() {
-        assert!(build_environment_line(r#"{"uptime": 5}"#, &device(), 0).is_none());
-        assert!(build_environment_line("not json", &device(), 0).is_none());
+    fn reading_requires_a_reading() {
+        assert!(build_environment_reading(r#"{"uptime": 5}"#, &device(), 0).is_none());
+        assert!(build_environment_reading("not json", &device(), 0).is_none());
     }
 
     #[test]
@@ -423,13 +373,5 @@ mod tests {
         assert!(is_sensor_payload(r#"{"pressure_hpa": 1013}"#));
         assert!(!is_sensor_payload(r#"{"status": "ok"}"#));
         assert!(!is_sensor_payload("<html>router admin page</html>"));
-    }
-
-    #[test]
-    fn iso_formatting() {
-        assert_eq!(iso_utc(0), "1970-01-01T00:00:00Z");
-        assert_eq!(iso_utc(1_782_788_400_000_000_000), "2026-06-30T03:00:00Z");
-        // Leap-year boundary.
-        assert_eq!(iso_utc(951_782_400_000_000_000), "2000-02-29T00:00:00Z");
     }
 }

@@ -1,7 +1,7 @@
-# Integration: ahara-vpn flows and the TrueNAS pull job
+# Integration: ahara-vpn flows, airwave, and the house-sensors drain
 
-The appliance's two external dependencies are declared elsewhere and owned
-by their repos. This page is the contract for both. Addresses below use the
+The appliance's external dependencies are declared elsewhere and owned by
+their repos. This page is the contract for each. Addresses below use the
 placeholder values; substitute the real site values.
 
 ## ahara-vpn: gateway flows
@@ -44,8 +44,8 @@ regain the Suricata inspection the gateway-hosted relay lost:
   ];
 }
 {
-  # The readings pull (ahara-collector ADR-0002): TrueNAS drains the
-  # collector's spool over its single API port.
+  # The readings pull (ahara-collector ADR-0002): the house-sensors
+  # collectors drain the appliance's spool over its single API port.
   name = "truenas-to-collector-pull";
   description = "TrueNAS readings pull from the collector API";
   sourceZone = "servers";
@@ -60,9 +60,10 @@ regain the Suricata inspection the gateway-hosted relay lost:
 
 `collectorIp` should come from the gateway's site values (a new
 `collectorIp` value, or an `extraDnsHosts` entry — a `collector` DNS record
-under `local.ahara.io` is worth adding at the same time). Once the TrueNAS
-house-sensors containers retire, `truenas-to-iot-discovery`,
-`iot-discovery-replies`, and `truenas-to-iot-poll` retire with them.
+under `local.ahara.io` is worth adding at the same time). Once the
+house-sensors collectors read from the collector API instead of polling
+devices, `truenas-to-iot-discovery`, `iot-discovery-replies`, and
+`truenas-to-iot-poll` retire.
 
 ## airwave: target change
 
@@ -76,20 +77,72 @@ AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.65.10
 Nothing else in airwave changes: it still sends M-SEARCH from :1901,
 NOTIFYs from :1900, and receives replies on :1901.
 
-## TrueNAS: the pull job
+## house-sensors: drain the collector instead of polling devices
 
-A small container in the house-sensors stack drains the collector and
-writes to InfluxDB. Contract:
+The existing house-sensors collectors keep everything downstream of
+input — measurement and field naming, unit conversion, bucket writes,
+downsampler, dashboards — and change only where readings come from: the
+appliance's API replaces direct device polling, which the gateway firewall
+blocks from the server subnet. No new container is introduced.
+
+house-sensors is the sole owner of the data schema (ADR-0006). The
+appliance ships device-native readings and never emits a measurement,
+field, or bucket name.
+
+### Reading envelopes
+
+`GET /readings/next` serves a batch of newline-separated JSON envelopes,
+one per reading:
+
+```json
+{
+  "module": "envSensors",
+  "device": {
+    "ip": "192.168.65.42",
+    "name": "ATOM3U-ENV3-005",
+    "model": "ENV3",
+    "deviceId": "ATOM3U-ENV3-005",
+    "tags": { "room": "office lab" }
+  },
+  "timestampNs": 1782788400000000000,
+  "values": {
+    "temperature_c": 21.5,
+    "humidity": 45.1,
+    "pressure_pa": 101325.0,
+    "sample_age_ms": 50.0
+  }
+}
+```
+
+- `module` — which collector module produced the reading: `envSensors`
+  (AtomS3U environment sensors) or `kasa` (KP125M plugs). New modules add
+  new names; unrecognized modules are house-sensors' cue that a mapping is
+  missing.
+- `device` — identity as discovered: `ip` always; `name`, `model`,
+  `deviceId`, and user `tags` when the device reports them.
+- `timestampNs` — measurement time in Unix nanoseconds, computed on the
+  appliance (for env sensors, corrected by the device-reported sample age
+  when present).
+- `values` — the device's own payload, verbatim. Env sensors: the
+  `/sensors` JSON as the firmware sent it. Kasa: the `get_energy_usage`
+  result with vendor keys and units (`current_power` in mW, `today_energy`
+  in Wh, `voltage_mv`, `current_ma`).
+
+house-sensors maps envelopes to its schema: `envSensors` readings become
+the `environment` measurement in `environment-data`, `kasa` readings
+become `voltage_monitoring` in `voltage-data`, with all field naming and
+unit conversion applied there. An envelope with an unknown module is
+counted and dropped (or parked), never half-written.
+
+### Drain cycle
 
 1. `GET http://192.168.65.10:8850/readings/next` with
    `authorization: Bearer <token>`.
    - `204` — spool empty; sleep (10 s is fine) and retry.
-   - `200` — body `{"batchId": "...", "lines": "..."}`; `lines` is
-     newline-separated InfluxDB line protocol.
-2. Route each line by measurement and POST to
-   `http://192.168.66.3:18086/api/v2/write?org=ahara&bucket=<bucket>&precision=ns`:
-   `environment` → `environment-data`, `voltage_monitoring` →
-   `voltage-data` (anything else → drop and count).
+   - `200` — body `{"batchId": "...", "lines": "..."}`; `lines` is the
+     newline-separated envelopes.
+2. Map each envelope and write to InfluxDB at
+   `http://192.168.66.3:18086/api/v2/write?org=ahara&bucket=<bucket>&precision=ns`.
 3. Only after every write succeeds:
    `POST /readings/ack` with `{"batchId": "..."}`.
 4. On any failure, do not ack — the batch is re-served. Duplicate writes
@@ -103,18 +156,18 @@ Influx settings. Poll every 10 s; each batch is at most one spool segment
 
 ## Cutover order
 
-The TrueNAS device pollers are dark — the firewall split cut them off from
-the devices — so there is no parallel-run period: the collector plus the
-pull job is what restores data flow into the existing buckets, downsampler,
-and dashboards.
+The gateway firewall blocks the house-sensors collectors from reaching
+home-LAN devices directly, so switching their input to the appliance's API
+is what restores data flow into the existing buckets, downsampler, and
+dashboards.
 
 1. Deploy the collector; add the three gateway flows; verify
    `s13-health-check` and the VM-tested paths against real devices.
 2. Switch `AIRWAVE_SSDP_TARGETS`; confirm WiiM discovery in airwave; remove
    the directed-broadcast flows from ahara-vpn.
-3. Add the pull job with the collector token; confirm `environment` and
-   `voltage_monitoring` land in their buckets and the dashboards fill in
-   again.
+3. Switch the house-sensors collectors to the drain input with the
+   collector token; confirm `environment` and `voltage_monitoring` land in
+   their buckets and the dashboards fill in again.
 4. Validate the Kasa module against a real KP125M (ADR-0005).
-5. Remove the dead TrueNAS environment/voltage poller containers and the
-   TrueNAS→IoT gateway flows they used.
+5. Remove the house-sensors device-polling paths and the TrueNAS→IoT
+   gateway flows they used.

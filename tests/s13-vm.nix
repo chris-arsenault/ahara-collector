@@ -265,15 +265,18 @@ pkgs.testers.runNixOSTest {
             timeout=120,
         )
         peer.wait_until_succeeds(
-            f"curl -sf {auth} http://192.168.65.10:8850/readings/next | grep -q 'environment,'",
+            f"curl -sf {auth} http://192.168.65.10:8850/readings/next | grep -q 'envSensors'",
             timeout=120,
         )
 
     with subtest("TrueNAS pull cycle: drain then ack"):
         batch = peer.succeed(f"curl -sf {auth} http://192.168.65.10:8850/readings/next")
         doc = json.loads(batch)
-        assert "temperature_c=21.5" in doc["lines"], doc["lines"]
-        assert "room=vm" in doc["lines"], doc["lines"]
+        reading = json.loads(doc["lines"].splitlines()[0])
+        assert reading["module"] == "envSensors", reading
+        assert reading["values"]["temperature_c"] == 21.5, reading
+        assert reading["device"]["tags"]["room"] == "vm", reading
+        assert reading["timestampNs"] > 0, reading
         ack = json.dumps({"batchId": doc["batchId"]})
         out = peer.succeed(
             f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.65.10:8850/readings/ack"
@@ -285,9 +288,10 @@ pkgs.testers.runNixOSTest {
         peer.succeed("airwave-probe")
 
     with subtest("ingest accepts device pushes with Basic auth"):
-        peer.fail("curl -sf -X POST -d 'm v=1i 1' http://192.168.65.10:8850/ingest")
+        pushed = json.dumps({"module": "push", "values": {"v": 42}})
+        peer.fail(f"curl -sf -X POST -d {shlex.quote(pushed)} http://192.168.65.10:8850/ingest")
         out = peer.succeed(
-            "curl -sf -X POST -u admin:vmpass -d 'pushed v=42i 7' http://192.168.65.10:8850/ingest"
+            f"curl -sf -X POST -u admin:vmpass -d {shlex.quote(pushed)} http://192.168.65.10:8850/ingest"
         )
         assert '"accepted":1' in out, out
 

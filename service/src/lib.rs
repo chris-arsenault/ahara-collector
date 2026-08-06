@@ -1,10 +1,10 @@
 pub mod api;
 pub mod config;
 pub mod crypto;
+pub mod envelope;
 pub mod http;
 pub mod json;
 pub mod kasa;
-pub mod lineproto;
 pub mod metrics;
 pub mod registry;
 pub mod sensors;

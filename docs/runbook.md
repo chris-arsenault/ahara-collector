@@ -94,7 +94,7 @@ given), and installs. Nothing is committed to git.
 ## After first boot
 
 1. SSH in: `ssh ops@192.168.65.10`.
-2. Read the API token and give it to the TrueNAS pull job
+2. Read the API token and give it to the house-sensors drain
    ([integration.md](integration.md)):
    `sudo cat /var/lib/ahara-collector/api-token`
 3. If credentials were not seeded at install:
@@ -127,7 +127,7 @@ The appliance is rebuildable from the repo plus three pieces of host
 state: `site-values.json`, `credentials.json`, and the API token (which
 regenerates on first boot — the repo is public, so there is no repo
 credential to restore). Re-run the bootstrap and hand the new API token to
-the pull job.
+the house-sensors drain.
 
 A bad release rolls itself back (health gate). A bad host-values edit
 fails validation and never activates; fix the file and re-run

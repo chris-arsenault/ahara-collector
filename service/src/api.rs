@@ -1,7 +1,8 @@
-//! The appliance's single-port API. TrueNAS drains readings here (bearer
-//! token, generated on the host at first boot); future push-capable sensor
-//! firmware lands lines on /ingest with the same Basic credentials the
-//! devices already hold. /health stays unauthenticated for the deploy gate.
+//! The appliance's single-port API. The house-sensors drain pulls reading
+//! envelopes here (bearer token, generated on the host at first boot);
+//! future push-capable sensor firmware lands envelopes on /ingest with the
+//! same Basic credentials the devices already hold. /health stays
+//! unauthenticated for the deploy gate.
 //!
 //! Routes:
 //!   GET  /health          liveness + module states (no auth)
@@ -9,13 +10,13 @@
 //!   GET  /devices         discovered devices per module (bearer)
 //!   GET  /readings/next   oldest closed spool segment (bearer)
 //!   POST /readings/ack    {"batchId": ...} deletes a drained batch (bearer)
-//!   POST /ingest          line-protocol body from devices (Basic auth)
+//!   POST /ingest          envelope JSON lines from devices (Basic auth)
 
 use crate::config::{BasicCredentials, Config};
 use crate::crypto;
+use crate::envelope;
 use crate::http::{self, Request, Response};
 use crate::json::Json;
-use crate::lineproto;
 use crate::metrics::{self, Metrics};
 use crate::registry::Registry;
 use crate::spool::Spool;
@@ -200,6 +201,10 @@ impl Api {
         let Ok(text) = std::str::from_utf8(&request.body) else {
             return Response::empty(400);
         };
+        let now_ns = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as i64)
+            .unwrap_or(0);
         let mut accepted = Vec::new();
         let mut rejected = 0i64;
         for line in text.lines() {
@@ -207,10 +212,9 @@ impl Api {
             if line.is_empty() {
                 continue;
             }
-            if lineproto::looks_like_line(line) {
-                accepted.push(line.to_string());
-            } else {
-                rejected += 1;
+            match envelope::normalize_pushed(line, now_ns) {
+                Some(normalized) => accepted.push(normalized),
+                None => rejected += 1,
             }
         }
         for _ in 0..accepted.len() {
@@ -334,13 +338,14 @@ mod tests {
         // Empty spool: 204.
         assert_eq!(api.handle(&request("GET", "/readings/next", &auth, b"")).status, 204);
 
-        api.spool.append(&["m v=1i 1".to_string()]).unwrap();
+        let envelope_line = r#"{"module":"m","timestampNs":1,"values":{"v":1}}"#;
+        api.spool.append(&[envelope_line.to_string()]).unwrap();
         let response = api.handle(&request("GET", "/readings/next", &auth, b""));
         assert_eq!(response.status, 200);
         let body = String::from_utf8(response.body).unwrap();
         let doc = crate::json::parse(&body).unwrap();
         let batch_id = doc.get("batchId").unwrap().as_str().unwrap().to_string();
-        assert!(doc.get("lines").unwrap().as_str().unwrap().contains("m v=1i 1"));
+        assert!(doc.get("lines").unwrap().as_str().unwrap().contains(envelope_line));
 
         let ack_body = format!(r#"{{"batchId": "{batch_id}"}}"#);
         let response = api.handle(&request("POST", "/readings/ack", &auth, ack_body.as_bytes()));
@@ -361,14 +366,26 @@ mod tests {
     #[test]
     fn ingest_validates_and_authenticates() {
         let api = api_with_spool("ingest");
+        let envelope_body = br#"{"module": "push", "values": {"v": 42}}"#;
         // No auth → 401. Bearer is not accepted here — devices hold Basic.
-        assert_eq!(api.handle(&request("POST", "/ingest", &[], b"m v=1i 1")).status, 401);
+        assert_eq!(api.handle(&request("POST", "/ingest", &[], envelope_body)).status, 401);
         let basic = [("authorization", "Basic YWRtaW46cHc=")]; // admin:pw
-        let body = b"m v=1i 1\nnot a line\n\nm2,tag=a f=2 9\n";
+        let body = b"{\"module\": \"push\", \"values\": {\"v\": 42}}\nnot an envelope\n\n{\"module\": \"push\", \"timestampNs\": 7, \"values\": {\"x\": 1}}\n";
         let response = api.handle(&request("POST", "/ingest", &basic, body));
         assert_eq!(response.status, 200);
         let text = String::from_utf8(response.body).unwrap();
         assert!(text.contains("\"accepted\":2"), "{text}");
         assert!(text.contains("\"rejected\":1"), "{text}");
+
+        // The spooled envelopes are normalized: every one carries a timestamp.
+        let auth = [("authorization", "Bearer testtoken")];
+        let drained = api.handle(&request("GET", "/readings/next", &auth, b""));
+        let drained_body = String::from_utf8(drained.body).unwrap();
+        let doc = crate::json::parse(&drained_body).unwrap();
+        let lines = doc.get("lines").unwrap().as_str().unwrap();
+        assert!(
+            lines.lines().all(|l| l.contains("\"timestampNs\":")),
+            "{lines}"
+        );
     }
 }
