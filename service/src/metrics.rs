@@ -39,7 +39,7 @@ pub fn set(counter: &AtomicU64, value: u64) {
 }
 
 impl Metrics {
-    pub fn render(&self, spool: &crate::spool::Spool) -> String {
+    pub fn render(&self, spools: &crate::spool::SpoolSet) -> String {
         let mut out = String::new();
         let mut emit = |name: &str, value: u64| {
             out.push_str(name);
@@ -127,7 +127,7 @@ impl Metrics {
             self.batches_acked.load(Ordering::Relaxed),
         );
 
-        let stats = spool.stats();
+        let stats = spools.stats();
         emit("collector_spool_bytes", stats.total_bytes);
         emit("collector_spool_closed_segments", stats.closed_segments);
         emit("collector_spool_dropped_segments_total", stats.dropped_segments);

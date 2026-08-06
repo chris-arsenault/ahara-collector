@@ -89,6 +89,11 @@ house-sensors is the sole owner of the data schema (ADR-0006). The
 appliance ships device-native readings and never emits a measurement,
 field, or bucket name.
 
+Each module is its own stream (ADR-0007): the environment collector
+drains `module=envSensors`, the volt collector drains `module=kasa`, and
+the two never see each other's batches. A future module is a new stream
+with a new consumer, not a change to any existing one.
+
 ### Reading envelopes
 
 `GET /readings/next` serves a batch of newline-separated JSON envelopes,
@@ -115,9 +120,8 @@ one per reading:
 ```
 
 - `module` — which collector module produced the reading: `envSensors`
-  (AtomS3U environment sensors) or `kasa` (KP125M plugs). New modules add
-  new names; unrecognized modules are house-sensors' cue that a mapping is
-  missing.
+  (AtomS3U environment sensors) or `kasa` (KP125M plugs). The module also
+  names the stream the reading is served on.
 - `device` — identity as discovered: `ip` always; `name`, `model`,
   `deviceId`, and user `tags` when the device reports them.
 - `timestampNs` — measurement time in Unix nanoseconds, computed on the
@@ -131,20 +135,19 @@ one per reading:
 house-sensors maps envelopes to its schema: `envSensors` readings become
 the `environment` measurement in `environment-data`, `kasa` readings
 become `voltage_monitoring` in `voltage-data`, with all field naming and
-unit conversion applied there. An envelope with an unknown module is
-counted and dropped (or parked), never half-written.
+unit conversion applied there.
 
-### Drain cycle
+### Drain cycle (per consumer)
 
-1. `GET http://192.168.65.10:8850/readings/next` with
+1. `GET http://192.168.65.10:8850/readings/next?module=<name>` with
    `authorization: Bearer <token>`.
-   - `204` — spool empty; sleep (10 s is fine) and retry.
-   - `200` — body `{"batchId": "...", "lines": "..."}`; `lines` is the
-     newline-separated envelopes.
+   - `204` — stream empty; sleep (10 s is fine) and retry.
+   - `200` — body `{"batchId": "...", "module": "...", "lines": "..."}`;
+     `lines` is the newline-separated envelopes, all from this module.
 2. Map each envelope and write to InfluxDB at
    `http://192.168.66.3:18086/api/v2/write?org=ahara&bucket=<bucket>&precision=ns`.
 3. Only after every write succeeds:
-   `POST /readings/ack` with `{"batchId": "..."}`.
+   `POST /readings/ack` with `{"module": "...", "batchId": "..."}`.
 4. On any failure, do not ack — the batch is re-served. Duplicate writes
    are safe (idempotent per measurement/tags/timestamp).
 

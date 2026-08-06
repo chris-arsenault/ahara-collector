@@ -265,19 +265,21 @@ pkgs.testers.runNixOSTest {
             timeout=120,
         )
         peer.wait_until_succeeds(
-            f"curl -sf {auth} http://192.168.65.10:8850/readings/next | grep -q 'envSensors'",
+            f"curl -sf {auth} 'http://192.168.65.10:8850/readings/next?module=envSensors' | grep -q 'temperature_c'",
             timeout=120,
         )
 
     with subtest("TrueNAS pull cycle: drain then ack"):
-        batch = peer.succeed(f"curl -sf {auth} http://192.168.65.10:8850/readings/next")
+        batch = peer.succeed(
+            f"curl -sf {auth} 'http://192.168.65.10:8850/readings/next?module=envSensors'"
+        )
         doc = json.loads(batch)
         reading = json.loads(doc["lines"].splitlines()[0])
         assert reading["module"] == "envSensors", reading
         assert reading["values"]["temperature_c"] == 21.5, reading
         assert reading["device"]["tags"]["room"] == "vm", reading
         assert reading["timestampNs"] > 0, reading
-        ack = json.dumps({"batchId": doc["batchId"]})
+        ack = json.dumps({"module": "envSensors", "batchId": doc["batchId"]})
         out = peer.succeed(
             f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.65.10:8850/readings/ack"
         )

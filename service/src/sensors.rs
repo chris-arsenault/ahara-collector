@@ -146,7 +146,7 @@ pub fn build_environment_reading(body: &str, device: &EnvDevice, now_ns: i64) ->
         device.device_id.as_deref(),
         &device.tags,
     );
-    envelope::reading("envSensors", identity, timestamp_ns, doc)
+    envelope::reading(envelope::MODULE_ENV_SENSORS, identity, timestamp_ns, doc)
 }
 
 pub struct EnvSensorModule {

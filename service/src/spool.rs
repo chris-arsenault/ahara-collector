@@ -1,17 +1,22 @@
-//! Bounded on-disk spool: reading envelopes (JSON lines) wait here until
-//! the house-sensors drain pulls them. Readings append to an open segment;
-//! full segments close and queue in order; when the byte cap is hit the
-//! oldest closed segment is dropped (newest data wins — this is telemetry,
-//! not a ledger). Delivery is at-least-once: a batch is one closed
-//! segment, deleted only when the puller acknowledges it.
+//! Bounded on-disk spools: reading envelopes (JSON lines) wait here until
+//! their consumer pulls them. Each module gets its own spool (ADR-0007) —
+//! a subdirectory under the spool root — so every consumer drains and acks
+//! its own stream without touching the others. Within one spool, readings
+//! append to an open segment; full segments close and queue in order; when
+//! the byte cap is hit the oldest closed segment is dropped (newest data
+//! wins — this is telemetry, not a ledger). Delivery is at-least-once: a
+//! batch is one closed segment, deleted only when the puller acknowledges
+//! it.
 //!
 //! Crash tolerance is structural: appends are flushed line-wise, the reader
 //! ignores a torn trailing line, and acknowledgement is a file unlink.
 
+use crate::envelope::valid_module;
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 pub struct Spool {
     inner: Mutex<Inner>,
@@ -164,6 +169,89 @@ pub struct SpoolStats {
     pub dropped_segments: u64,
 }
 
+/// One spool per module under a shared root. Spools open on demand when a
+/// module first writes; existing subdirectories reopen at startup so
+/// pending batches survive a restart even if their producer stays idle.
+/// The byte caps apply per module.
+pub struct SpoolSet {
+    dir: PathBuf,
+    segment_bytes: u64,
+    max_bytes: u64,
+    spools: Mutex<BTreeMap<String, Arc<Spool>>>,
+}
+
+impl SpoolSet {
+    pub fn open(dir: &Path, segment_bytes: u64, max_bytes: u64) -> std::io::Result<SpoolSet> {
+        fs::create_dir_all(dir)?;
+        let mut spools = BTreeMap::new();
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+            if let Some(name) = entry.file_name().to_str() {
+                if valid_module(name) {
+                    spools.insert(
+                        name.to_string(),
+                        Arc::new(Spool::open(&entry.path(), segment_bytes, max_bytes)?),
+                    );
+                }
+            }
+        }
+        Ok(SpoolSet {
+            dir: dir.to_path_buf(),
+            segment_bytes,
+            max_bytes,
+            spools: Mutex::new(spools),
+        })
+    }
+
+    /// The module's spool, created if it does not exist yet. Rejects
+    /// invalid module names (they would become directory names).
+    pub fn for_module(&self, module: &str) -> std::io::Result<Arc<Spool>> {
+        if !valid_module(module) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("invalid module name {module:?}"),
+            ));
+        }
+        let mut spools = self.spools.lock().unwrap();
+        if let Some(spool) = spools.get(module) {
+            return Ok(Arc::clone(spool));
+        }
+        let spool = Arc::new(Spool::open(
+            &self.dir.join(module),
+            self.segment_bytes,
+            self.max_bytes,
+        )?);
+        spools.insert(module.to_string(), Arc::clone(&spool));
+        Ok(spool)
+    }
+
+    /// The module's spool if it already exists — the read path never
+    /// creates directories.
+    pub fn get(&self, module: &str) -> Option<Arc<Spool>> {
+        self.spools.lock().unwrap().get(module).cloned()
+    }
+
+    /// Aggregate stats across every module's spool.
+    pub fn stats(&self) -> SpoolStats {
+        let spools: Vec<Arc<Spool>> = self.spools.lock().unwrap().values().cloned().collect();
+        let mut total = SpoolStats {
+            total_bytes: 0,
+            closed_segments: 0,
+            dropped_segments: 0,
+        };
+        for spool in spools {
+            let stats = spool.stats();
+            total.total_bytes += stats.total_bytes;
+            total.closed_segments += stats.closed_segments;
+            total.dropped_segments += stats.dropped_segments;
+        }
+        total
+    }
+}
+
 impl Inner {
     fn rotate(&mut self) -> std::io::Result<()> {
         if self.current_len == 0 {
@@ -308,6 +396,44 @@ mod tests {
         assert!(!spool.ack("../../etc/passwd").unwrap());
         assert!(!spool.ack("seg-notanumber.jsonl").unwrap());
         assert!(!spool.ack("seg-0000000000000009.jsonl").unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn spool_set_isolates_modules() {
+        let dir = temp_dir("set");
+        let set = SpoolSet::open(&dir, 1024, 4096).unwrap();
+        set.for_module("envSensors")
+            .unwrap()
+            .append(&[r#"{"module":"envSensors"}"#.into()])
+            .unwrap();
+        set.for_module("kasa")
+            .unwrap()
+            .append(&[r#"{"module":"kasa"}"#.into()])
+            .unwrap();
+
+        // Draining and acking one module leaves the other untouched.
+        let env = set.get("envSensors").unwrap();
+        let (batch, body) = env.next_batch().unwrap().unwrap();
+        assert!(body.contains("envSensors"));
+        assert!(env.ack(&batch).unwrap());
+        assert!(env.next_batch().unwrap().is_none());
+        let kasa = set.get("kasa").unwrap();
+        assert!(kasa.next_batch().unwrap().unwrap().1.contains("kasa"));
+
+        // Unknown module on the read path: absent, not created.
+        assert!(set.get("radio-433").is_none());
+        assert!(!dir.join("radio-433").exists());
+        // Invalid names never become directories.
+        assert!(set.for_module("../escape").is_err());
+
+        // Aggregate stats cover every module.
+        assert!(set.stats().total_bytes > 0);
+
+        // Reopen picks up existing module directories.
+        drop(set);
+        let reopened = SpoolSet::open(&dir, 1024, 4096).unwrap();
+        assert!(reopened.get("kasa").is_some());
         let _ = fs::remove_dir_all(&dir);
     }
 

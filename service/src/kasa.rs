@@ -269,7 +269,7 @@ pub fn build_power_reading(
         device.device_id.as_deref(),
         &[],
     );
-    envelope::reading("kasa", identity, now_ns, result.clone())
+    envelope::reading(envelope::MODULE_KASA, identity, now_ns, result.clone())
 }
 
 /// Kasa nicknames arrive base64-encoded.

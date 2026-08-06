@@ -8,8 +8,8 @@ use ahara_collector::api::{Api, ModuleFlags};
 use ahara_collector::config::{Config, Credentials};
 use ahara_collector::metrics::Metrics;
 use ahara_collector::registry::Registry;
-use ahara_collector::spool::Spool;
-use ahara_collector::{api, kasa, sensors, ssdp};
+use ahara_collector::spool::SpoolSet;
+use ahara_collector::{api, envelope, kasa, sensors, ssdp};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -63,8 +63,8 @@ fn main() {
         std::process::exit(1);
     });
 
-    let spool = Arc::new(
-        Spool::open(
+    let spools = Arc::new(
+        SpoolSet::open(
             Path::new(&config.spool.dir),
             config.spool.segment_bytes,
             config.spool.max_bytes,
@@ -77,6 +77,12 @@ fn main() {
             std::process::exit(1);
         }),
     );
+    let module_spool = |module: &str| {
+        spools.for_module(module).unwrap_or_else(|e| {
+            eprintln!("event=startup_failed reason=spool_unavailable module={module} error={e}");
+            std::process::exit(1);
+        })
+    };
     let metrics = Arc::new(Metrics::default());
     let registry = Arc::new(Registry::default());
     let stop = Arc::new(AtomicBool::new(false));
@@ -104,7 +110,7 @@ fn main() {
             creds: credentials.env_sensors.clone(),
             bind_address: config.bind_address,
             home_broadcast: config.home_broadcast,
-            spool: Arc::clone(&spool),
+            spool: module_spool(envelope::MODULE_ENV_SENSORS),
             metrics: Arc::clone(&metrics),
             registry: Arc::clone(&registry),
         };
@@ -118,7 +124,7 @@ fn main() {
             creds: credentials.kasa.clone(),
             bind_address: config.bind_address,
             home_broadcast: config.home_broadcast,
-            spool: Arc::clone(&spool),
+            spool: module_spool(envelope::MODULE_KASA),
             metrics: Arc::clone(&metrics),
             registry: Arc::clone(&registry),
         };
@@ -129,7 +135,7 @@ fn main() {
     let api = Arc::new(Api {
         token,
         ingest_creds: credentials.env_sensors.clone(),
-        spool,
+        spools,
         metrics,
         registry,
         modules: ModuleFlags {

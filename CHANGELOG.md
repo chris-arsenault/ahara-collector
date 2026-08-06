@@ -22,11 +22,12 @@ All notable user-visible changes are recorded here.
   implemented and marked experimental pending hardware validation. Both
   modules emit device-native reading envelopes — the data schema is owned
   entirely by house-sensors.
-- Readings buffer in a bounded on-disk spool (oldest-dropped, crash
-  tolerant) and are drained by the house-sensors collectors through a
-  single authenticated API port with at-least-once batch delivery; the
-  same port serves health, metrics (including host gauges), device
-  listings, and a Basic-auth push path for future firmware.
+- Readings buffer in a bounded on-disk spool per module (oldest-dropped,
+  crash tolerant), and each house-sensors collector drains its own
+  module's stream through a single authenticated API port with
+  at-least-once batch delivery; the same port serves health, metrics
+  (including host gauges), device listings, and a Basic-auth push path
+  for future firmware.
 - Device credentials are one root-owned host-state file, seedable at
   bootstrap or by scp, handed to the sandboxed service via systemd
   credentials; modules without credentials idle instead of failing.

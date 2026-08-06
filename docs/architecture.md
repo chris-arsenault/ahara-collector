@@ -61,18 +61,19 @@ schema is owned entirely by house-sensors (ADR-0006;
 [integration.md](integration.md) specifies the envelope). Credentials are
 host state (ADR-0003); a module without credentials idles.
 
-**Spool and API** (ADR-0002). Readings append to a bounded on-disk spool
-(size-capped, oldest-dropped, crash-tolerant) and wait for TrueNAS to pull
-them. The API is one port:
+**Spools and API** (ADR-0002, ADR-0007). Each module's readings append to
+that module's own bounded on-disk spool (size-capped, oldest-dropped,
+crash-tolerant) and wait for that module's consumer to pull them — one
+stream per consumer, no fan-out anywhere. The API is one port:
 
 | Route | Auth | Purpose |
 | ----- | ---- | ------- |
-| `GET /health` | none | liveness for the deploy gate and pull job |
+| `GET /health` | none | liveness for the deploy gate and consumers |
 | `GET /metrics` | bearer | service counters plus host load/memory gauges |
 | `GET /devices` | bearer | discovered devices per module |
-| `GET /readings/next` | bearer | oldest closed spool segment as a batch |
-| `POST /readings/ack` | bearer | delete a drained batch |
-| `POST /ingest` | device Basic | envelope push path for future firmware |
+| `GET /readings/next?module=<name>` | bearer | oldest closed segment of that module's spool |
+| `POST /readings/ack` | bearer | delete a drained batch (`module` + `batchId`) |
+| `POST /ingest` | device Basic | envelope push path for future firmware, routed by each envelope's module |
 
 The bearer token is generated on the host at first boot and read by the
 TrueNAS pull job's operator once. Host metrics are served from `/proc` on
