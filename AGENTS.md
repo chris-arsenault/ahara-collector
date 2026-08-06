@@ -16,6 +16,10 @@ Read this before editing. [README.md](README.md) has the repository map.
 - **The Rust service stays dependency-free.** The appliance builds offline
   from a pinned flake; everything is std plus the test-vectored primitives
   in `service/src/crypto.rs`.
+- **TLS terminates in nginx, never in the service** (ADR-0008). The
+  certificate is publicly trusted and renewed on the appliance via DNS-01;
+  its Route53 credential is host state, and a missing or failed issuance
+  must degrade to the self-signed placeholder rather than break the API.
 - **The collector never speaks the data schema.** house-sensors owns every
   measurement, field, and bucket name (ADR-0006); this service ships
   device-native reading envelopes with verbatim device keys and units. The
@@ -32,6 +36,7 @@ Read this before editing. [README.md](README.md) has the repository map.
 | Sensor pollers | `service/src/sensors.rs`, `service/src/kasa.rs` | Kasa KLAP is experimental until validated on hardware |
 | Spool | `service/src/spool.rs` | Bounded, oldest-dropped, ack-deletes |
 | API | `service/src/api.rs` | Single port; bearer for pulls, Basic for device pushes |
+| TLS terminator | `hosts/s13/tls.nix` | nginx + ACME in front of the API port |
 | Updater + health gate | `hosts/s13/deployment.nix` | The ahara-vpn ADR-0001/0008 pattern |
 | Installer | `scripts/bootstrap-s13.sh` | scp a public key, run one command |
 

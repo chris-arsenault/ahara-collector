@@ -16,6 +16,10 @@ let
   n = v.network;
   homeBroadcast = lib.broadcastOf n.homeLanCidr;
   prefixLength = (lib.parseCidr n.homeLanCidr).prefix;
+  # The subtree the VP2440 is authoritative for. It is a real subdomain of
+  # the owned domain, so this appliance's name carries a publicly-valid
+  # certificate (ahara-vpn ADR-0015); the gateway serves the matching record.
+  internalDomain = "local.ahara.io";
 in
 {
   host = {
@@ -47,6 +51,25 @@ in
 
   api = {
     inherit (v.api) port;
+    # Defaulted like every other key added after a machine was installed: an
+    # existing store predating it keeps evaluating, so the appliance never
+    # silently stops updating.
+    tlsPort = v.api.tlsPort or 8443;
+    # Consumers reach the API by this name and verify the chain against it;
+    # the plain port stays bound for the not-yet-cut-over TrueNAS puller
+    # (docs/backlog.md).
+    hostName = "collector.${internalDomain}";
+    # Publicly-trusted certificate via Route53 DNS-01 (ahara-vpn ADR-0015).
+    # The credential is host state like the device credentials and the
+    # token: absent, the terminator serves a self-signed placeholder and
+    # nothing else on the appliance is affected.
+    acme = {
+      # Operator contact for the ACME account, not topology: it is machine
+      # state like every other value here, so the committed placeholder is
+      # not a real address.
+      email = v.api.acme.email or "ops@placeholder.invalid";
+      credentialsFile = "/var/lib/ahara-collector/acme.env";
+    };
   };
 
   # Module configuration handed to the collector service as one JSON document

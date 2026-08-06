@@ -222,6 +222,40 @@ let
     }
     {
       path = [
+        "api"
+        "tlsPort"
+      ];
+      check = p: isInt p && p >= 1024 && p <= 65535;
+      describe = "unprivileged port 1024-65535";
+    }
+    {
+      path = [
+        "api"
+        "hostName"
+      ];
+      check = s: isString s && match "[a-zA-Z0-9.-]+" s != null;
+      describe = "DNS name";
+    }
+    {
+      path = [
+        "api"
+        "acme"
+        "email"
+      ];
+      check = s: isString s && match ".+@.+" s != null;
+      describe = "email address";
+    }
+    {
+      path = [
+        "api"
+        "acme"
+        "credentialsFile"
+      ];
+      check = s: isString s && match "/.+" s != null;
+      describe = "absolute path";
+    }
+    {
+      path = [
         "collector"
         "airwaveSsdp"
         "enable"
@@ -493,6 +527,12 @@ let
         [ ]
       else
         [ "site.api.port must differ from collector.airwaveSsdp.relayPort" ]
+    )
+    ++ (
+      if site.api.tlsPort != site.api.port then
+        [ ]
+      else
+        [ "site.api.tlsPort must differ from api.port: the terminator fronts the service" ]
     );
 
   validateSite =

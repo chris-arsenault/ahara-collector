@@ -152,6 +152,7 @@ pkgs.testers.runNixOSTest {
       imports = [
         ../hosts/s13/network.nix
         ../hosts/s13/collector.nix
+        ../hosts/s13/tls.nix
         ../hosts/s13/deployment.nix
         ../hosts/s13/hardening.nix
       ];
@@ -225,6 +226,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("firewall: default drop with the declared surface only"):
         collector.succeed("nft list ruleset | grep -qF 'collector:api'")
+        collector.succeed("nft list ruleset | grep -qF 'collector:api-tls'")
         collector.succeed("nft list ruleset | grep -qF 'collector:ssdp'")
         collector.succeed("nft list ruleset | grep -qF 'collector:env-discovery-replies'")
 
@@ -243,6 +245,30 @@ pkgs.testers.runNixOSTest {
         peer.wait_until_succeeds("curl -sf http://192.168.65.10:8850/health | grep -q '\"status\":\"ok\"'")
         peer.fail("curl -sf http://192.168.65.10:8850/readings/next")
         peer.fail("curl -sf -H 'authorization: Bearer wrong' http://192.168.65.10:8850/metrics")
+
+    with subtest("TLS terminator fronts the same API"):
+        collector.wait_for_unit("nginx.service")
+        peer.wait_until_succeeds(
+            "curl -skf https://192.168.65.10:8443/health | grep -q '\"status\":\"ok\"'",
+            timeout=60,
+        )
+        # No ACME credential exists in the VM, so the self-signed placeholder
+        # serves and an unverified request is refused: exactly the posture of
+        # an appliance whose credential is not yet installed (ahara-vpn
+        # ADR-0015). The order is skipped, never failed.
+        peer.fail("curl -sf --max-time 5 https://192.168.65.10:8443/health")
+        # The regression this guards: gating the placeholder generator
+        # instead of the ordering unit left nginx with no certificate at all
+        # and the API in a restart loop.
+        collector.succeed("systemctl is-active nginx.service")
+        collector.succeed("test -s /var/lib/acme/collector.local.ahara.io/fullchain.pem")
+        collector.succeed("systemctl is-active acme-collector.local.ahara.io.service")
+        collector.fail(
+            "systemctl is-failed acme-order-renew-collector.local.ahara.io.service >/dev/null"
+        )
+        collector.fail("systemctl is-failed acme-collector.local.ahara.io.service >/dev/null")
+        # Authorization passes through the terminator unchanged.
+        peer.fail("curl -skf https://192.168.65.10:8443/readings/next")
 
     token = collector.succeed("cat /var/lib/ahara-collector/api-token").strip()
     auth = f"-H 'authorization: Bearer {token}'"

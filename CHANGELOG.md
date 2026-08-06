@@ -6,6 +6,13 @@ All notable user-visible changes are recorded here.
 
 ### Appliance
 
+- The pull API is served over TLS at `collector.local.ahara.io:8443` with a
+  publicly-trusted certificate the appliance issues and renews itself via
+  Route53 DNS-01, so the bearer token and the readings no longer cross the
+  gateway path in plaintext. Without the ACME credential a self-signed
+  placeholder serves and nothing else changes. The plain port stays open
+  until the TrueNAS puller cuts over. The deploy health gate checks that
+  the terminator answers, so a release that cannot serve TLS rolls back.
 - The S13 collector appliance exists: a NixOS host on the home LAN with a
   one-command bootstrap installer, pull-based self-deployment gated by
   health checks with rollback, and a default-drop firewall opening exactly

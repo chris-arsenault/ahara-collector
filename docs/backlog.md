@@ -8,8 +8,9 @@ future-state behavior.
 - The Kasa module is validated against a real KP125M and loses its
   experimental marker; discovery, handshake, and field mappings are
   confirmed against python-kasa output side by side.
-- The pull API serves TLS (self-signed, the ahara-vpn config-API pattern),
-  so the bearer token never crosses the gateway path in plaintext.
+- The TrueNAS puller drains over `https://collector.local.ahara.io:8443`
+  with chain verification, after which the plain port's firewall opening
+  and the gateway's `truenas-to-collector-pull` flow are removed.
 - Sensor firmware pushes readings to `POST /ingest` on its own schedule,
   and polling becomes the fallback rather than the only path.
 

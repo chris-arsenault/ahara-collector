@@ -37,6 +37,9 @@ Optional:
                           the readings pull are pinned to it.
   --dns IP                DNS server; may repeat (default: 9.9.9.9 and
                           149.112.112.112).
+  --acme-email ADDRESS    ACME account contact for the API's certificate
+                          (default: ops@placeholder.invalid — set a real
+                          address to receive expiry notices).
   --interface IFACE       Override NIC discovery (default: the ethernet
                           port with link, or the only ethernet port).
   --credentials-file PATH Device credentials JSON to seed
@@ -62,6 +65,7 @@ address=
 home_lan_cidr=
 router_ip=
 truenas_ip=192.168.66.3
+acme_email=ops@placeholder.invalid
 interface=
 credentials_file=
 confirm_disk=
@@ -76,6 +80,7 @@ while [[ $# -gt 0 ]]; do
     --home-lan-cidr) home_lan_cidr=$2; shift 2 ;;
     --router-ip) router_ip=$2; shift 2 ;;
     --truenas-ip) truenas_ip=$2; shift 2 ;;
+    --acme-email) acme_email=$2; shift 2 ;;
     --dns) dns_servers+=("$2"); shift 2 ;;
     --interface) interface=$2; shift 2 ;;
     --credentials-file) credentials_file=$2; shift 2 ;;
@@ -160,6 +165,7 @@ HOME_LAN_CIDR="$home_lan_cidr" \
 ADDRESS="$address" \
 ROUTER_IP="$router_ip" \
 TRUENAS_IP="$truenas_ip" \
+ACME_EMAIL="$acme_email" \
 DNS_SERVERS="$(printf '%s\n' "${dns_servers[@]}")" \
 ADMIN_KEYS="$admin_keys" \
   bash "${S13_RENDER:?S13_RENDER is not set}" >"$workdir/site-values.json"

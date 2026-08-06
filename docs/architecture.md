@@ -2,7 +2,8 @@
 
 The S13 is a single-purpose collector appliance on the home LAN: it is the
 one host that faces the house's IoT devices, and the only surface it offers
-the rest of the network is one authenticated TCP port.
+the rest of the network is one authenticated TCP port, served over TLS at
+`collector.local.ahara.io`.
 
 ## Topology
 
@@ -80,10 +81,19 @@ TrueNAS pull job's operator once. Host metrics are served from `/proc` on
 the same port, so the appliance needs no node-exporter and no second
 listener.
 
+nginx fronts that port with TLS for `collector.local.ahara.io` (ADR-0008),
+so the token and the readings cross the gateway path encrypted and the
+service's own plaintext connection never leaves this host. The certificate
+is publicly trusted, issued and renewed on the appliance through Route53
+DNS-01 (ahara-vpn ADR-0015) with a credential held as host state; an
+appliance without that credential serves a self-signed placeholder and
+keeps every other function. Expiry is exported as a textfile metric.
+
 ## Firewall
 
 The NixOS nftables firewall defaults to drop and opens exactly the
-declared surface: SSH from the home LAN, the API port from TrueNAS and the
+declared surface: SSH from the home LAN, the API's TLS port and its plain
+port from TrueNAS and the
 home LAN, SSDP 1900 (TrueNAS unicast plus on-link), the relay reply port,
 and the two fixed discovery-reply ports (broadcast requests cannot ride
 conntrack, so the service binds fixed source ports and the rules stay

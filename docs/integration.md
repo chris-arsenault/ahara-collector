@@ -56,14 +56,26 @@ regain the Suricata inspection the gateway-hosted relay lost:
   protocol = "tcp";
   ports = [ 8850 ];
 }
+{
+  # The same pull over TLS (ADR-0008), which the puller cuts over to.
+  name = "truenas-to-collector-pull-tls";
+  description = "TrueNAS readings pull from the collector API over TLS";
+  sourceZone = "servers";
+  source = truenasIp;
+  destZone = "home";
+  destination = collectorIp;
+  inspect = true;
+  protocol = "tcp";
+  ports = [ 8443 ];
+}
 ```
 
-`collectorIp` should come from the gateway's site values (a new
-`collectorIp` value, or an `extraDnsHosts` entry — a `collector` DNS record
-under `local.ahara.io` is worth adding at the same time). Once the
+Both flows and the `collector.local.ahara.io` record are declared in the
+gateway's `site.nix`; `collectorIp` is one of its site values. Once the
 house-sensors collectors read from the collector API instead of polling
 devices, `truenas-to-iot-discovery`, `iot-discovery-replies`, and
-`truenas-to-iot-poll` retire.
+`truenas-to-iot-poll` retire, and the plain-port flow retires with the
+puller's cutover.
 
 ## airwave: target change
 
@@ -139,8 +151,11 @@ unit conversion applied there.
 
 ### Drain cycle (per consumer)
 
-1. `GET http://192.168.65.10:8850/readings/next?module=<name>` with
-   `authorization: Bearer <token>`.
+1. `GET https://collector.local.ahara.io:8443/readings/next?module=<name>`
+   with `authorization: Bearer <token>`, verifying the chain normally — the
+   appliance serves a publicly-trusted certificate (ADR-0008). The plain
+   `http://192.168.65.10:8850` endpoint stays available until this cutover
+   completes (docs/backlog.md).
    - `204` — stream empty; sleep (10 s is fine) and retry.
    - `200` — body `{"batchId": "...", "module": "...", "lines": "..."}`;
      `lines` is the newline-separated envelopes, all from this module.
@@ -151,7 +166,9 @@ unit conversion applied there.
 4. On any failure, do not ack — the batch is re-served. Duplicate writes
    are safe (idempotent per measurement/tags/timestamp).
 
-Configuration: `COLLECTOR_URL`, `COLLECTOR_TOKEN` (suggested SSM path
+Configuration: `COLLECTOR_URL`
+(`https://collector.local.ahara.io:8443`, resolved by the gateway's DNS),
+`COLLECTOR_TOKEN` (suggested SSM path
 `/ahara/house-sensors/collector/api-token`, populated from
 `sudo cat /var/lib/ahara-collector/api-token`), plus the stack's existing
 Influx settings. Poll every 10 s; each batch is at most one spool segment

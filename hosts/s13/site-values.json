@@ -19,7 +19,11 @@
     "pollIntervalMinutes": 2
   },
   "api": {
-    "port": 8850
+    "port": 8850,
+    "tlsPort": 8443,
+    "acme": {
+      "email": "ops@placeholder.invalid"
+    }
   },
   "airwaveSsdp": {
     "enable": true,

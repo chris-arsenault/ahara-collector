@@ -82,6 +82,7 @@ nix --extra-experimental-features 'nix-command flakes' \
   --address 192.168.65.10 \
   --home-lan-cidr 192.168.65.0/24 \
   --router-ip 192.168.65.1 \
+  --acme-email you@example.com \
   --credentials-file /tmp/credentials.json
 ```
 
@@ -106,8 +107,38 @@ given), and installs. Nothing is committed to git.
      rm /tmp/credentials.json && sudo systemctl restart ahara-collector'
    ```
 
-4. Verify: `s13-health-check` prints `health: all checks ok`, and
-   `curl -s http://192.168.65.10:8850/health` answers from the home LAN.
+4. Install the ACME credential so the API serves a publicly-trusted
+   certificate (ADR-0008). ahara-vpn's Terraform creates the
+   `ahara-vpn-acme-collector` IAM user; mint an access key for it
+   out-of-band, then on the appliance:
+
+   ```bash
+   sudo install -m 0600 /dev/null /var/lib/ahara-collector/acme.env
+   sudoedit /var/lib/ahara-collector/acme.env
+   ```
+
+   The file holds exactly these entries (`AWS_HOSTED_ZONE_ID` is ahara-vpn's
+   `acme_hosted_zone_id` Terraform output):
+
+   ```text
+   AWS_ACCESS_KEY_ID=<access key id>
+   AWS_SECRET_ACCESS_KEY=<secret access key>
+   AWS_REGION=us-east-1
+   AWS_HOSTED_ZONE_ID=<zone id>
+   ```
+
+   Then issue for the first time; renewals continue on the module's timer:
+
+   ```bash
+   sudo systemctl start acme-collector.local.ahara.io.service
+   ```
+
+   An absent or wrong credential leaves a self-signed placeholder serving
+   and affects nothing else on the appliance.
+
+5. Verify: `s13-health-check` prints `health: all checks ok`, and
+   `curl -s https://collector.local.ahara.io:8443/health` answers from the
+   home LAN (add `-k` before the credential is installed).
 
 ## Routine operations
 
@@ -118,15 +149,16 @@ given), and installs. Nothing is committed to git.
 | Change a host value | Edit `/var/lib/ahara-collector/site-values.json`; the next poll rebuilds (validation rejects typos before activation) |
 | Rotate device credentials | Re-upload the file, `sudo systemctl restart ahara-collector` |
 | See what the collector is doing | `journalctl -u ahara-collector -f` (structured `event=` lines) |
-| Check the spool | `curl -s -H "authorization: Bearer $TOKEN" http://192.168.65.10:8850/metrics \| grep spool` |
-| List discovered devices | `curl -s -H "authorization: Bearer $TOKEN" http://192.168.65.10:8850/devices` |
+| Check the spool | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/metrics \| grep spool` |
+| List discovered devices | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/devices` |
+| Check certificate expiry | `cat /var/lib/ahara-collector/metrics/tls_cert.prom` |
 
 ## Recovery
 
-The appliance is rebuildable from the repo plus three pieces of host
-state: `site-values.json`, `credentials.json`, and the API token (which
-regenerates on first boot — the repo is public, so there is no repo
-credential to restore). Re-run the bootstrap and hand the new API token to
+The appliance is rebuildable from the repo plus four pieces of host
+state: `site-values.json`, `credentials.json`, `acme.env`, and the API
+token (which regenerates on first boot — the repo is public, so there is no
+repo credential to restore). Re-run the bootstrap and hand the new API token to
 the house-sensors drain.
 
 A bad release rolls itself back (health gate). A bad host-values edit

@@ -60,8 +60,13 @@ in
       # Admin SSH from the home LAN only.
       ip saddr ${n.homeLanCidr} tcp dport 22 accept comment "collector:ssh-home"
 
-      # Pull API: TrueNAS drains readings through the gateway; home-LAN
-      # operators reach the same port for health and device listings.
+      # Pull API over TLS (ahara-vpn ADR-0015): the terminator fronts the
+      # service at collector.local.ahara.io, so nothing crosses the wire in
+      # plaintext.
+      ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } tcp dport ${toString site.api.tlsPort} accept comment "collector:api-tls"
+
+      # The plain port stays reachable until the TrueNAS puller cuts over to
+      # the TLS endpoint (docs/backlog.md).
       ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } tcp dport ${toString site.api.port} accept comment "collector:api"
 
       # Airwave SSDP ingress (unicast from TrueNAS) and on-link SSDP

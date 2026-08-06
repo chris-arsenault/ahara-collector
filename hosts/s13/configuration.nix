@@ -12,6 +12,7 @@
     ./disko.nix
     ./network.nix
     ./collector.nix
+    ./tls.nix
     ./deployment.nix
     ./hardening.nix
   ];

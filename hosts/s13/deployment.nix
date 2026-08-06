@@ -31,6 +31,24 @@ let
     text = ''
       fail=0
       failed=""
+
+      # Bounded wait so a check whose subject legitimately arrives a moment
+      # after activation judges a settled system. Called before the check it
+      # precedes, never through check(), which would hide the call.
+      settle() {
+        local attempts="$1"
+        shift
+        local i=0
+        while [ "$i" -lt "$attempts" ]; do
+          if "$@" >/dev/null 2>&1; then
+            return 0
+          fi
+          sleep 1
+          i=$((i + 1))
+        done
+        return 1
+      }
+
       check() {
         local desc="$1"
         shift
@@ -49,6 +67,14 @@ let
       check "nftables input policy loaded" bash -c "nft list ruleset | grep -q 'collector:api'"
       check "collector active" systemctl is-active ahara-collector
       check "collector API healthy" curl -sf --connect-timeout 3 http://${n.address}:${toString site.api.port}/health
+      # Consumers reach the API only through the terminator, so a release
+      # that cannot serve TLS rolls back. -k because the placeholder
+      # certificate is expected until the ACME credential is installed
+      # (ADR-0008); what is being checked is that it answers at all. nginx
+      # binds an address networkd may hand over a moment late.
+      tls_health="https://${n.address}:${toString site.api.tlsPort}/health"
+      settle 15 curl -skf --connect-timeout 3 "$tls_health" || true
+      check "API terminator healthy" curl -skf --connect-timeout 3 "$tls_health"
       check "router reachable" ping -c 1 -W 2 ${n.routerIp}
 
       if [ "$fail" -eq 0 ]; then

@@ -4,7 +4,8 @@ The Ahara home-LAN IoT collector appliance: a NixOS host (Beelink Mini S13)
 that lives on the home LAN, relays SSDP between Airwave and the WiiM
 players, polls the house's IoT sensors with locally held credentials,
 buffers readings in a bounded on-disk spool, and serves everything to
-TrueNAS through one authenticated API port.
+TrueNAS through one authenticated API port, served over TLS at
+`collector.local.ahara.io`.
 
 It replaces the gateway-hosted SSDP relay attempt in ahara-vpn: WiiM
 devices ignore SSDP sourced from the routed server subnet, so discovery has
