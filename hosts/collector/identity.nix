@@ -17,7 +17,10 @@ in
   ahara.enroll = {
     enable = true;
     authorityUrl = "https://trust.local.ahara.io:8443";
-    workloadId = "spiffe://ahara/appliance/iot/collector";
+    # Two segments under ahara: the AWS role that may one day back this
+    # identity is named and tagged from exactly this pair, and a third segment
+    # would produce a name no role can be matched to.
+    workloadId = "spiffe://ahara/appliance/collector";
 
     certificate = {
       enable = true;
