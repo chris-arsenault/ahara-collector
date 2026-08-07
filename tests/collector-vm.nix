@@ -148,6 +148,10 @@ pkgs.testers.runNixOSTest {
 
   nodes.collector =
     { lib, ... }:
+    let
+      api = (import ../hosts/collector/site.nix { }).api;
+      n = (import ../hosts/collector/site.nix { }).network;
+    in
     {
       imports = [
         ../hosts/collector/network.nix
@@ -161,6 +165,34 @@ pkgs.testers.runNixOSTest {
       networking.hostName = "collector-test";
       system.stateVersion = "26.05";
       environment.systemPackages = [ pkgs.curl ];
+
+      # Stands in for the trust appliance, which is not in this test. The
+      # appliance generates nothing itself: without a certificate nginx does
+      # not start, which is the point. What is under test is the API behind
+      # the terminator, so the certificate is supplied rather than obtained.
+      systemd.services.test-certificate = {
+        description = "Supply the certificate the trust appliance would have";
+        wantedBy = [ "multi-user.target" ];
+        before = [ "nginx.service" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+        };
+        path = [
+          pkgs.coreutils
+          pkgs.openssl
+        ];
+        script = ''
+          mkdir -p "$(dirname ${api.certificate})"
+          openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
+            -subj "/CN=${api.hostName}" \
+            -addext "subjectAltName=DNS:${api.hostName},IP:${n.address}" \
+            -keyout ${api.certificateKey} -out ${api.certificate}
+          chown root:nginx ${api.certificateKey}
+          chmod 640 ${api.certificateKey}
+          chmod 644 ${api.certificate}
+        '';
+      };
       # Nothing routable exists during boot; don't stall on wait-online.
       systemd.network.wait-online.enable = lib.mkForce false;
       boot.consoleLogLevel = lib.mkForce 3;
@@ -252,16 +284,17 @@ pkgs.testers.runNixOSTest {
             "curl -skf https://192.168.65.10:8443/health | grep -q '\"status\":\"ok\"'",
             timeout=60,
         )
-        # The certificate is self-signed until the machine-identity appliance
-        # distributes a trusted one (ADR-0008), so an unverified request is
-        # refused.
+        # The certificate here stands in for the trust appliance's and is not
+        # publicly trusted, so an unpinned client refuses it. In production
+        # the distributed one is trusted and this succeeds.
         peer.fail("curl -sf --max-time 5 https://192.168.65.10:8443/health")
-        # The regression this guards: leaving nginx without a certificate put
-        # it in a restart loop and took the API off the network.
+        # The appliance generates no certificate of its own: it obtains one
+        # from the trust appliance or serves nothing. A placeholder would let
+        # the terminator come up while the machine was misconfigured.
         collector.succeed("systemctl is-active nginx.service")
-        collector.succeed("test -s /var/lib/ahara-collector-tls/api.crt")
+        collector.fail("systemctl list-units --all | grep -q ahara-collector-tls")
         collector.succeed("test $(stat -c %a /var/lib/ahara-collector-tls/api.key) = 640")
-        # This appliance runs no ACME client and holds no cloud credential.
+        # No ACME client and no cloud credential either.
         collector.fail("systemctl list-units --all | grep -q acme")
         # Authorization passes through the terminator unchanged.
         peer.fail("curl -skf https://192.168.65.10:8443/readings/next")

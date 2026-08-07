@@ -83,11 +83,13 @@ listener.
 
 nginx fronts that port with TLS for `collector.local.ahara.io` (ADR-0008),
 so the token and the readings cross the gateway path encrypted and the
-service's own plaintext connection never leaves this host. The certificate
-is publicly trusted, issued and renewed on the appliance through Route53
-DNS-01 (ahara-vpn ADR-0015) with a credential held as host state; an
-appliance without that credential serves a self-signed placeholder and
-keeps every other function. Expiry is exported as a textfile metric.
+service's own plaintext connection never leaves this host. The certificate is
+publicly trusted and fetched from the machine-identity appliance, which the
+collector authenticates to with the identity it enrolled for; this appliance
+holds no cloud credential of its own. Without a certificate nginx does not
+start, so an appliance that cannot obtain one fails its deploy rather than
+serving a placeholder nobody would notice. Expiry is exported as a textfile
+metric.
 
 ## Firewall
 

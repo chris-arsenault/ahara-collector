@@ -23,11 +23,15 @@ collector service, which keeps speaking plain HTTP on its existing port. The
 plaintext leg is a connection from the host to itself and never reaches a
 wire; the service's private key surface stays zero.
 
-The certificate is self-signed on first boot and later replaced by one the
-machine-identity appliance obtains and distributes (ahara-vpn ADR-0015). This
-appliance runs no ACME client and holds no cloud credential: one machine
-holds the DNS credential for the whole household, because a credential per
-appliance grows the manual work with the number of appliances.
+The certificate comes from the machine-identity appliance, which obtains and
+distributes it (ahara-vpn ADR-0015). This appliance runs no ACME client and
+holds no cloud credential: one machine holds the DNS credential for the whole
+household, because a credential per appliance grows the manual work with the
+number of appliances.
+
+There is no locally generated stand-in. nginx does not start without a
+certificate, so an appliance that cannot obtain one fails its deploy instead
+of serving a placeholder that would make the misconfiguration invisible.
 
 ## Alternatives considered
 
@@ -37,7 +41,6 @@ appliance grows the manual work with the number of appliances.
 - **A self-signed certificate on the terminator, permanently** — no cloud
   credential anywhere, but every consumer must either pin the certificate or
   disable verification, and the latter is what plaintext already gets you.
-  This is the interim state until distribution exists, not the end state.
 - **This appliance running its own ACME client** — renews independently with
   no distribution channel to build, at the cost of a long-lived cloud
   credential on every machine that terminates TLS.

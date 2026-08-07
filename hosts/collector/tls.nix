@@ -48,41 +48,24 @@ in
     };
   };
 
+  # The certificate comes from the machine-identity appliance and there is no
+  # locally generated stand-in. Without one nginx does not start, the health
+  # check fails, and the deploy rolls back — an appliance that cannot obtain
+  # its certificate is misconfigured, and a placeholder would hide that.
+  #
+  # No ConditionPathExists on the certificate: a skipped unit is quiet, and
+  # nginx failing to read one that is not there is the signal.
   systemd.services.nginx = {
-    after = [ "ahara-collector-tls.service" ];
-    requires = [ "ahara-collector-tls.service" ];
+    # ahara-certificate installs it, having first obtained an identity to
+    # fetch it with. Both are timer-driven, so they are pulled in here to run
+    # at boot rather than at the timer's first elapse.
+    after = [ "ahara-certificate.service" ];
+    wants = [ "ahara-certificate.service" ];
     # nginx binds the appliance address explicitly, and a bind attempted
     # before networkd has assigned it fails outright. Retry without a start
     # limit so boot ordering cannot leave the API terminator down.
     unitConfig.StartLimitIntervalSec = lib.mkForce 0;
     serviceConfig.RestartSec = lib.mkForce "2s";
-  };
-
-  # Self-signed until the machine-identity appliance distributes a
-  # publicly-trusted certificate for this name. This appliance runs no ACME
-  # client and holds no cloud credential.
-  systemd.services.ahara-collector-tls = {
-    description = "Generate the pull API TLS certificate on first boot";
-    wantedBy = [ "multi-user.target" ];
-    unitConfig.ConditionPathExists = "!${api.certificate}";
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-    };
-    path = [
-      pkgs.coreutils
-      pkgs.openssl
-    ];
-    script = ''
-      mkdir -p "$(dirname ${api.certificate})"
-      openssl req -x509 -newkey rsa:4096 -sha256 -nodes -days 3650 \
-        -subj "/CN=${api.hostName}" \
-        -addext "subjectAltName=DNS:${api.hostName},IP:${n.address}" \
-        -keyout ${api.certificateKey} -out ${api.certificate}
-      chown root:nginx ${api.certificateKey}
-      chmod 640 ${api.certificateKey}
-      chmod 644 ${api.certificate}
-    '';
   };
 
   # Certificate expiry as a metric on the API's own /metrics surface would

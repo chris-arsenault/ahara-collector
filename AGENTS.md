@@ -17,9 +17,10 @@ Read this before editing. [README.md](README.md) has the repository map.
   from a pinned flake; everything is std plus the test-vectored primitives
   in `service/src/crypto.rs`.
 - **TLS terminates in nginx, never in the service** (ADR-0008). The
-  certificate is publicly trusted and renewed on the appliance via DNS-01;
-  its Route53 credential is host state, and a missing or failed issuance
-  must degrade to the self-signed placeholder rather than break the API.
+  certificate is publicly trusted and comes from the machine-identity
+  appliance; this appliance runs no ACME client and holds no cloud
+  credential. There is no placeholder to fall back to: without a certificate
+  nginx does not start, which is what keeps a broken issuance visible.
 - **The collector never speaks the data schema.** house-sensors owns every
   measurement, field, and bucket name (ADR-0006); this service ships
   device-native reading envelopes with verbatim device keys and units. The

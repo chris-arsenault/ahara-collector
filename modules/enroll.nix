@@ -41,12 +41,10 @@ let
       mkdir -p "$state"
       chmod 0700 "$state"
 
-      # Two separate authorities are in play and conflating them is the
-      # mistake to avoid: the transport certificate the terminator serves is
-      # self-signed and unrelated to the CA that signs machine identities.
-      # Verifying the transport is therefore trust-on-first-use at best, and
-      # the check that actually matters is that the certificate handed back
-      # chains to the CA pinned below. That is what install_issued enforces.
+      # Fetching the CA is the one call with nothing to verify against, so it
+      # is trust-on-first-use and -k. Everything afterwards is verified: the
+      # authority terminates TLS with a certificate signed by this same CA,
+      # so the pinned copy checks the transport as well as what comes back.
       if [ ! -s "$chain" ]; then
         curl -skf --max-time 10 "$url/ca.pem" -o "$chain" || {
           echo "authority unreachable; will retry"
@@ -58,6 +56,9 @@ let
           exit 0
         }
       fi
+
+      # Verify the transport against the pinned CA from here on.
+      verified=(--cacert "$chain")
 
       renew_after() {
         # Half the certificate's life. An appliance off for less than that
@@ -110,7 +111,7 @@ let
         request
         # Renewal authenticates with the certificate already held, so no
         # operator is involved and no secret is carried.
-        if curl -skf --cert "$cert" --key "$key" \
+        if curl -sf "''${verified[@]}" --cert "$cert" --key "$key" \
              --max-time 30 -X POST --data-binary @"$state/next.json" \
              "$url/renew" -o "$state/response.json"; then
           install_issued
@@ -124,14 +125,18 @@ let
       # policy, so this either succeeds or is refused outright; there is
       # nothing to wait for and nobody to ask.
       [ -s "$state/next.json" ] || request
-      code=$(curl -sk --max-time 30 -o "$state/response.json" \
+      code=$(curl -s "''${verified[@]}" --max-time 30 -o "$state/response.json" \
         -w '%{http_code}' -X POST --data-binary @"$state/next.json" "$url/enroll" || echo 000)
 
+      # A refusal is permanent until someone changes the authority's policy,
+      # so the unit fails and stays visible in `systemctl --failed`. Exiting
+      # 0 here would make a machine that will never hold an identity look
+      # healthy forever. Unreachable is transient, so that one exits clean.
       case "$code" in
         200) install_issued ;;
         000) echo "authority unreachable; will retry" ;;
-        403) echo "$workload is not declared on the authority; declare it there"; exit 0 ;;
-        *)   echo "enrollment refused (HTTP $code)"; exit 0 ;;
+        403) echo "$workload is not declared on the authority; declare it there"; exit 1 ;;
+        *)   echo "enrollment refused (HTTP $code)"; exit 1 ;;
       esac
     '';
   };
@@ -259,7 +264,11 @@ in
               tmp=$(mktemp -d)
               trap 'rm -rf "$tmp"' EXIT
 
-              code=$(curl -sk --cert "$state/identity.crt" --key "$state/identity.key" \
+              # The authority terminates TLS with a certificate from the CA
+              # pinned here when the identity was obtained, so the transport
+              # is verified rather than taken on faith.
+              code=$(curl -s --cacert "$state/authority.pem" \
+                --cert "$state/identity.crt" --key "$state/identity.key" \
                 --max-time 30 -o "$tmp/response.json" -w '%{http_code}' \
                 ${cfg.authorityUrl}/certificate || echo 000)
 

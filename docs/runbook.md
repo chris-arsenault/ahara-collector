@@ -107,9 +107,10 @@ given), and installs. Nothing is committed to git.
    ```
 
 4. Verify: `collector-health-check` prints `health: all checks ok`, and
-   `curl -sk https://collector.local.ahara.io:8443/health` answers from the
-   home LAN (`-k` because the certificate is self-signed until the
-   machine-identity appliance distributes a trusted one).
+   `curl -s https://collector.local.ahara.io:8443/health` answers from the
+   home LAN. No `-k`: the certificate is publicly trusted. If nothing answers,
+   the appliance has no certificate yet — check `ahara-enroll` and
+   `ahara-certificate`.
 
 ## Routine operations
 
