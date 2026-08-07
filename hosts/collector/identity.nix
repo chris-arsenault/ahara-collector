@@ -5,8 +5,8 @@
 # fetches the shared publicly-trusted certificate. This appliance holds no
 # cloud credential and runs no ACME client of its own (ADR-0008).
 #
-# Everything here degrades quietly. Before the appliance exists, or before an
-# operator has approved this machine, the terminator keeps serving the
+# Everything here degrades quietly. Before the appliance exists, or while this
+# machine's id is not declared there, the terminator keeps serving the
 # self-signed certificate it generated on first boot, and the TrueNAS puller
 # keeps working against it.
 { site, ... }:

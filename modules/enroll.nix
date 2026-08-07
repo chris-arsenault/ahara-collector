@@ -11,8 +11,8 @@
 # It is deliberately shell over curl and openssl: both are already on every
 # appliance, mutual TLS is one flag, and nothing here needs to parse a
 # certificate. The design constraint is that it must be safe to run on a timer
-# forever — a device that has not been approved yet, or whose authority is
-# unreachable, exits quietly and tries again.
+# forever — a device whose authority is unreachable, or whose id has not been
+# declared there, exits quietly and tries again.
 {
   config,
   lib,
@@ -61,8 +61,8 @@ let
 
       renew_after() {
         # Half the certificate's life. An appliance off for less than that
-        # recovers by itself; one off for longer is refused and re-approved,
-        # which is the intended behaviour rather than a failure.
+        # recovers by itself; one off for longer falls back to enrolling
+        # afresh, which needs nobody because its id is still declared.
         local not_after now half
         not_after=$(date -d "$(openssl x509 -in "$cert" -noout -enddate | cut -d= -f2)" +%s)
         not_before=$(date -d "$(openssl x509 -in "$cert" -noout -startdate | cut -d= -f2)" +%s)
@@ -120,17 +120,17 @@ let
         exit 0
       fi
 
-      # No identity yet. Submitting is idempotent: the authority returns the
-      # certificate once an operator has approved this exact request, so the
-      # timer both requests and collects.
+      # No identity yet. The authority issues to any id declared in its site
+      # policy, so this either succeeds or is refused outright; there is
+      # nothing to wait for and nobody to ask.
       [ -s "$state/next.json" ] || request
       code=$(curl -sk --max-time 30 -o "$state/response.json" \
         -w '%{http_code}' -X POST --data-binary @"$state/next.json" "$url/enroll" || echo 000)
 
       case "$code" in
         200) install_issued ;;
-        202) echo "awaiting approval for $workload" ;;
         000) echo "authority unreachable; will retry" ;;
+        403) echo "$workload is not declared on the authority; declare it there"; exit 0 ;;
         *)   echo "enrollment refused (HTTP $code)"; exit 0 ;;
       esac
     '';
