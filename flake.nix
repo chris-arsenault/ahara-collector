@@ -21,18 +21,18 @@
       system = "x86_64-linux";
       pkgs = nixpkgs.legacyPackages.${system};
       sitelib = import ./lib/site-assertions.nix;
-      site = sitelib.assertValid (import ./hosts/s13/site.nix { });
+      site = sitelib.assertValid (import ./hosts/collector/site.nix { });
       collectorPackage = pkgs.callPackage ./service/package.nix { };
     in
     {
       formatter.${system} = pkgs.nixfmt-tree;
 
-      nixosConfigurations.s13 = nixpkgs.lib.nixosSystem {
+      nixosConfigurations.collector = nixpkgs.lib.nixosSystem {
         inherit system;
         specialArgs = { inherit site sitelib collectorPackage; };
         modules = [
           disko.nixosModules.disko
-          ./hosts/s13/configuration.nix
+          ./hosts/collector/configuration.nix
         ];
       };
 
@@ -40,16 +40,16 @@
       # --argstr disk /dev/disk/by-id/... (the bootstrap script does this).
       # disko's CLI calls this with extra arguments (flake, lib, ...) beyond
       # the --argstr it is given; the ellipsis is load-bearing.
-      diskoConfigurations.s13 =
+      diskoConfigurations.collector =
         {
           disk ? "/dev/disk/by-id/REPLACE_WITH_INSTALL_DISK",
           ...
         }:
-        import ./hosts/s13/disko.nix { inherit disk; };
+        import ./hosts/collector/disko.nix { inherit disk; };
 
       packages.${system} = {
         ahara-collector = collectorPackage;
-        bootstrap-s13 = import ./scripts/bootstrap-s13.nix {
+        bootstrap-collector = import ./scripts/bootstrap-collector.nix {
           inherit pkgs self;
           diskoPackage = disko.packages.${system}.disko;
         };
@@ -63,8 +63,8 @@
       checks.${system} = {
         ahara-collector = collectorPackage;
         site-validation = import ./tests/site-validation.nix { inherit pkgs; };
-        s13-system = self.nixosConfigurations.s13.config.system.build.toplevel;
-        s13-vm = import ./tests/s13-vm.nix { inherit pkgs; };
+        collector-system = self.nixosConfigurations.collector.config.system.build.toplevel;
+        collector-vm = import ./tests/collector-vm.nix { inherit pkgs; };
       };
     };
 }

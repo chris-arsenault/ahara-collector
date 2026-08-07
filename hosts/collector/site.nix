@@ -1,4 +1,4 @@
-# Single source of truth for the S13 collector appliance. Machine-specific
+# Single source of truth for the collector appliance. Machine-specific
 # inputs live in site-values.json (placeholders in git; a real machine's store
 # is host state overlaid at build time, the ahara-vpn ADR-0006 pattern);
 # everything here derives from those values or is a topology constant, so no

@@ -15,10 +15,10 @@ to originate on the WiiM subnet itself (ADR-0001).
 
 | Path | Contents |
 | ---- | -------- |
-| [`hosts/s13/`](hosts/s13/) | The appliance's NixOS configuration; `site.nix` is the single source of truth |
+| [`hosts/collector/`](hosts/collector/) | The appliance's NixOS configuration; `site.nix` is the single source of truth |
 | [`service/`](service/) | The collector service: dependency-free Rust, one binary |
 | [`lib/`](lib/) | Pure-nix site validation |
-| [`scripts/`](scripts/) | `bootstrap-s13` installer and the site-values renderer |
+| [`scripts/`](scripts/) | `bootstrap-collector` installer and the site-values renderer |
 | [`tests/`](tests/) | Eval-time site validation and the two-VM liveness test |
 | [`docs/`](docs/) | [Architecture](docs/architecture.md), [runbook](docs/runbook.md), [integration](docs/integration.md), [ADRs](docs/adr/), [backlog](docs/backlog.md) |
 
@@ -29,7 +29,7 @@ to originate on the WiiM subnet itself (ADR-0001).
 | `make ci` | Format check, flake validation, unit tests |
 | `make test-vm` | Build and run the VM test |
 | `cargo test` (in `service/`) | Rust unit tests |
-| `nix run .#bootstrap-s13` | Install the appliance (run on the NixOS installer; see runbook) |
+| `nix run .#bootstrap-collector` | Install the appliance (run on the NixOS installer; see runbook) |
 
 ## Device credentials
 
@@ -53,7 +53,7 @@ cat > credentials.json <<EOF
 EOF
 ```
 
-Hand the file to `bootstrap-s13 --credentials-file` at install, or upload
+Hand the file to `bootstrap-collector --credentials-file` at install, or upload
 it later per the [runbook](docs/runbook.md) (scp, `install -m 0600` to
 `/var/lib/ahara-collector/credentials.json`, restart `ahara-collector`).
 Delete the local copy afterwards; it never belongs in a repo.
@@ -63,4 +63,4 @@ Delete the local copy afterwards; it never belongs in a repo.
 CI validates `main` and advances the `release` branch; the appliance polls
 that ref every two minutes, overlays its host values, builds, activates,
 and keeps the release only when the health check passes. First install is
-one `bootstrap-s13` command ([runbook](docs/runbook.md)).
+one `bootstrap-collector` command ([runbook](docs/runbook.md)).

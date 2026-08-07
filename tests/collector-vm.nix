@@ -18,7 +18,7 @@
 let
   sitelib = import ../lib/site-assertions.nix;
   baseValues =
-    builtins.removeAttrs (builtins.fromJSON (builtins.readFile ../hosts/s13/site-values.json))
+    builtins.removeAttrs (builtins.fromJSON (builtins.readFile ../hosts/collector/site-values.json))
       [
         "_comment"
       ];
@@ -31,7 +31,7 @@ let
       enable = false;
     };
   };
-  testSite = sitelib.assertValid (import ../hosts/s13/site.nix { values = testValues; });
+  testSite = sitelib.assertValid (import ../hosts/collector/site.nix { values = testValues; });
 
   mockEnvSensor = pkgs.writeScriptBin "mock-env-sensor" ''
     #!${pkgs.python3}/bin/python3
@@ -136,7 +136,7 @@ let
   '';
 in
 pkgs.testers.runNixOSTest {
-  name = "s13-vm";
+  name = "collector-vm";
   requiredFeatures.kvm = false;
   globalTimeout = 1800;
 
@@ -150,15 +150,15 @@ pkgs.testers.runNixOSTest {
     { lib, ... }:
     {
       imports = [
-        ../hosts/s13/network.nix
-        ../hosts/s13/collector.nix
-        ../hosts/s13/tls.nix
-        ../hosts/s13/deployment.nix
-        ../hosts/s13/hardening.nix
+        ../hosts/collector/network.nix
+        ../hosts/collector/collector.nix
+        ../hosts/collector/tls.nix
+        ../hosts/collector/deployment.nix
+        ../hosts/collector/hardening.nix
       ];
       virtualisation.vlans = [ 1 ];
       virtualisation.memorySize = 1024;
-      networking.hostName = "s13-test";
+      networking.hostName = "collector-test";
       system.stateVersion = "26.05";
       environment.systemPackages = [ pkgs.curl ];
       # Nothing routable exists during boot; don't stall on wait-online.
@@ -330,11 +330,11 @@ pkgs.testers.runNixOSTest {
         assert "collector_host_load1" in metrics
 
     with subtest("deploy health check passes on the composed system"):
-        out = collector.succeed("s13-health-check")
+        out = collector.succeed("collector-health-check")
         assert "health: all checks ok" in out, out
         # And under the updater's shell-less service PATH.
         out = collector.succeed(
-            "systemd-run --collect --wait --pipe /run/current-system/sw/bin/s13-health-check"
+            "systemd-run --collect --wait --pipe /run/current-system/sw/bin/collector-health-check"
         )
         assert "health: all checks ok" in out, out
   '';

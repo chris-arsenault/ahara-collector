@@ -6,6 +6,12 @@ All notable user-visible changes are recorded here.
 
 ### Appliance
 
+- Everything is named for what it does rather than what it is:
+  `hosts/collector`, `nixosConfigurations.collector`, the `collector-update`
+  and `collector-health-check` units, `bootstrap-collector`, and the hostname
+  `collector`. Host state was already at `/var/lib/ahara-collector`, so
+  nothing moves on disk. The hardware is still a Beelink S13 and the docs
+  still say so where the physical machine is meant.
 - The pull API is served over TLS at `collector.local.ahara.io:8443` with a
   publicly-trusted certificate the appliance issues and renews itself via
   Route53 DNS-01, so the bearer token and the readings no longer cross the

@@ -1,6 +1,6 @@
 # scripts
 
-- `bootstrap-s13.sh` (+ `.nix` wrapper, exposed as `nix run .#bootstrap-s13`)
+- `bootstrap-collector.sh` (+ `.nix` wrapper, exposed as `nix run .#bootstrap-collector`)
   — one-command install on the NixOS installer: discovers the NIC, renders
   and validates this machine's values, erases the disk with the checked-in
   disko layout, seeds the configuration store (and optionally the

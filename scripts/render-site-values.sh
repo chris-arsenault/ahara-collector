@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Renders this machine's configuration store (site-values.json) to stdout
-# from environment variables. Used by bootstrap-s13 to seed the store at
+# from environment variables. Used by bootstrap-collector to seed the store at
 # install time; afterwards the store is edited in place on the host (rare)
 # and overlaid by the updater on every build.
 #
@@ -39,8 +39,8 @@ json_list() {
 # host state and can be edited on the machine later.
 cat <<EOF
 {
-  "_comment": "Configuration store, GENERATED $(date -u +%Y-%m-%dT%H:%M:%SZ) by bootstrap-s13. Edit on the host at /var/lib/ahara-collector/site-values.json; the updater overlays it on every build.",
-  "hostName": "s13",
+  "_comment": "Configuration store, GENERATED $(date -u +%Y-%m-%dT%H:%M:%SZ) by bootstrap-collector. Edit on the host at /var/lib/ahara-collector/site-values.json; the updater overlays it on every build.",
+  "hostName": "collector",
   "stateVersion": "26.05",
   "adminAuthorizedKeys": [
 $(json_list "    " "$ADMIN_KEYS")  ],

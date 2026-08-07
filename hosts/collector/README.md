@@ -1,4 +1,4 @@
-# hosts/s13
+# hosts/collector
 
 The appliance's NixOS configuration. `configuration.nix` is a pure
 composition root; each module owns one concern and reads every value from

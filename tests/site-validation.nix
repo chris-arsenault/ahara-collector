@@ -5,7 +5,7 @@
 { pkgs }:
 let
   lib = import ../lib/site-assertions.nix;
-  site = import ../hosts/s13/site.nix { };
+  site = import ../hosts/collector/site.nix { };
 
   goodErrors = lib.validateSite site;
 

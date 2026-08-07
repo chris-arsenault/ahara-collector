@@ -7,7 +7,7 @@
   diskoPackage,
 }:
 pkgs.writeShellApplication {
-  name = "bootstrap-s13";
+  name = "bootstrap-collector";
   runtimeInputs = with pkgs; [
     coreutils
     gnugrep
@@ -17,9 +17,9 @@ pkgs.writeShellApplication {
     util-linux
   ];
   text = ''
-    export S13_BOOTSTRAP_FLAKE=${self}
-    export S13_DISKO=${diskoPackage}/bin/disko
-    export S13_RENDER=${./render-site-values.sh}
-    exec ${pkgs.bash}/bin/bash ${./bootstrap-s13.sh} "$@"
+    export COLLECTOR_BOOTSTRAP_FLAKE=${self}
+    export COLLECTOR_DISKO=${diskoPackage}/bin/disko
+    export COLLECTOR_RENDER=${./render-site-values.sh}
+    exec ${pkgs.bash}/bin/bash ${./bootstrap-collector.sh} "$@"
   '';
 }

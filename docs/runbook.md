@@ -18,14 +18,14 @@ AWS CLI — no nix, no checkout.
 One-time prep, from your machine.
 
 Generate the admin keypair the `ops` user will trust (skip if
-`~/.ssh/s13-ops` already exists):
+`~/.ssh/collector-ops` already exists):
 
 ```bash
-ssh-keygen -t ed25519 -N "" -f ~/.ssh/s13-ops -C "s13-ops"
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/collector-ops -C "collector-ops"
 ```
 
 The public half is authorized on the appliance at install; the private key
-stays on your machine (`ssh -i ~/.ssh/s13-ops ops@…`, or add it to
+stays on your machine (`ssh -i ~/.ssh/collector-ops ops@…`, or add it to
 `~/.ssh/config` for the host).
 
 Render the device credentials from the SSM parameters they already live
@@ -67,7 +67,7 @@ partition (the bootstrap rejects partitions and unstable `/dev/nvme0n1`
 paths). Then from your machine:
 
 ```bash
-scp ~/.ssh/s13-ops.pub root@INSTALLER_IP:/tmp/ops.pub
+scp ~/.ssh/collector-ops.pub root@INSTALLER_IP:/tmp/ops.pub
 scp credentials.json root@INSTALLER_IP:/tmp/credentials.json
 ssh root@INSTALLER_IP
 ```
@@ -76,7 +76,7 @@ On the installer (the repo is public, so no credentials are involved):
 
 ```bash
 nix --extra-experimental-features 'nix-command flakes' \
-  run 'github:chris-arsenault/ahara-collector#bootstrap-s13' -- \
+  run 'github:chris-arsenault/ahara-collector#bootstrap-collector' -- \
   --disk /dev/disk/by-id/<INSTALL_DISK> \
   --key-file /tmp/ops.pub \
   --address 192.168.65.10 \
@@ -136,7 +136,7 @@ given), and installs. Nothing is committed to git.
    An absent or wrong credential leaves a self-signed placeholder serving
    and affects nothing else on the appliance.
 
-5. Verify: `s13-health-check` prints `health: all checks ok`, and
+5. Verify: `collector-health-check` prints `health: all checks ok`, and
    `curl -s https://collector.local.ahara.io:8443/health` answers from the
    home LAN (add `-k` before the credential is installed).
 
@@ -145,7 +145,7 @@ given), and installs. Nothing is committed to git.
 | Task | How |
 | ---- | --- |
 | Deploy a change | Merge to `main`; CI advances `release`; the appliance activates it within ~2 minutes |
-| Force an update poll | `sudo systemctl start s13-update.service` |
+| Force an update poll | `sudo systemctl start collector-update.service` |
 | Change a host value | Edit `/var/lib/ahara-collector/site-values.json`; the next poll rebuilds (validation rejects typos before activation) |
 | Rotate device credentials | Re-upload the file, `sudo systemctl restart ahara-collector` |
 | See what the collector is doing | `journalctl -u ahara-collector -f` (structured `event=` lines) |
@@ -163,5 +163,5 @@ the house-sensors drain.
 
 A bad release rolls itself back (health gate). A bad host-values edit
 fails validation and never activates; fix the file and re-run
-`s13-update`. If the machine is unreachable, the physical console
+`collector-update`. If the machine is unreachable, the physical console
 auto-logs-in as `ops`.

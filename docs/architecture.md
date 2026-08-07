@@ -1,6 +1,6 @@
 # Architecture
 
-The S13 is a single-purpose collector appliance on the home LAN: it is the
+The collector is a single-purpose appliance on the home LAN: it is the
 one host that faces the house's IoT devices, and the only surface it offers
 the rest of the network is one authenticated TCP port, served over TLS at
 `collector.local.ahara.io`.
@@ -12,7 +12,7 @@ Existing router (192.168.65.1) ─── Home LAN (HOME_LAN_CIDR)
    │                                 ├── WiiM players (SSDP/UPnP)
    │                                 ├── AtomS3U env sensors (HTTP + UDP discovery)
    │                                 ├── Kasa KP125M plugs (KLAP)
-   │                                 └── S13 collector (this host, static address)
+   │                                 └── collector (this host, static address)
    └── VP2440 gateway ─── Server subnet ─── TrueNAS (Airwave, InfluxDB, pull job)
 ```
 
@@ -25,7 +25,7 @@ TrueNAS address. The gateway-side flow declarations live in ahara-vpn;
 
 ## Single source of truth
 
-`hosts/s13/site.nix` declares every address, port, and module setting,
+`hosts/collector/site.nix` declares every address, port, and module setting,
 deriving machine-specific inputs from `site-values.json`. The repo commits
 placeholder values (what CI and the VM test build); a real machine's values
 are host state at `/var/lib/ahara-collector/site-values.json`, rendered by
@@ -102,7 +102,7 @@ narrow). Every rule carries a `collector:` comment.
 ## Deployment
 
 The ahara-vpn pull pattern, unchanged (ADR-0004): CI advances `release`;
-the `s13-update` timer polls it, overlays host values, builds, activates,
-and commits the generation only when `s13-health-check` passes; failures
-roll back. First install is one `bootstrap-s13` command on the NixOS
+the `collector-update` timer polls it, overlays host values, builds, activates,
+and commits the generation only when `collector-health-check` passes; failures
+roll back. First install is one `bootstrap-collector` command on the NixOS
 installer ([runbook](runbook.md)).

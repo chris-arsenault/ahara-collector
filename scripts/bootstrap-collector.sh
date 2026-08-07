@@ -3,16 +3,16 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Declaratively erase a disk and install the S13 collector appliance — the
+Declaratively erase a disk and install the collector appliance — the
 complete install in one command, run on the NixOS installer (normally inside
 an SSH session from your machine after setting a temporary root password;
 the only files to copy over are your SSH public key and, optionally, the
 device credentials file).
 
-  scp ~/.ssh/s13-ops.pub root@INSTALLER_IP:/tmp/ops.pub
+  scp ~/.ssh/collector-ops.pub root@INSTALLER_IP:/tmp/ops.pub
   scp credentials.json root@INSTALLER_IP:/tmp/credentials.json   # optional
   ssh root@INSTALLER_IP
-  nix run github:chris-arsenault/ahara-collector#bootstrap-s13 -- \
+  nix run github:chris-arsenault/ahara-collector#bootstrap-collector -- \
     --disk /dev/disk/by-id/ID --key-file /tmp/ops.pub \
     --address 192.168.65.10 --home-lan-cidr 192.168.65.0/24 \
     --router-ip 192.168.65.1 \
@@ -104,14 +104,14 @@ done
 if [[ -n "$credentials_file" ]]; then
   [[ -r "$credentials_file" ]] || die "cannot read $credentials_file"
 fi
-[[ "$(uname -m)" == x86_64 ]] || die "the S13 configuration is x86_64 only"
+[[ "$(uname -m)" == x86_64 ]] || die "the collector configuration is x86_64 only"
 [[ -d /sys/firmware/efi/efivars ]] || die "the installer must be booted through UEFI (systemd-boot)"
 grep -q '^ID=nixos' /etc/os-release 2>/dev/null || die "run this from the NixOS installer"
 ! findmnt -S "$disk" >/dev/null 2>&1 || die "$disk has mounted filesystems; unmount first"
 
 [[ ${#dns_servers[@]} -gt 0 ]] || dns_servers=(9.9.9.9 149.112.112.112)
 
-flake="${S13_BOOTSTRAP_FLAKE:?S13_BOOTSTRAP_FLAKE is not set}"
+flake="${COLLECTOR_BOOTSTRAP_FLAKE:?COLLECTOR_BOOTSTRAP_FLAKE is not set}"
 export NIX_CONFIG="${NIX_CONFIG:-}
 experimental-features = nix-command flakes"
 
@@ -157,7 +157,7 @@ echo "using interface $interface ($interface_mac)"
 
 # ---- render and validate this machine's values ------------------------------
 
-workdir=$(mktemp -d /tmp/bootstrap-s13.XXXXXX)
+workdir=$(mktemp -d /tmp/bootstrap-collector.XXXXXX)
 trap 'rm -rf "$workdir"' EXIT
 
 INTERFACE_MAC="$interface_mac" \
@@ -168,25 +168,25 @@ TRUENAS_IP="$truenas_ip" \
 ACME_EMAIL="$acme_email" \
 DNS_SERVERS="$(printf '%s\n' "${dns_servers[@]}")" \
 ADMIN_KEYS="$admin_keys" \
-  bash "${S13_RENDER:?S13_RENDER is not set}" >"$workdir/site-values.json"
+  bash "${COLLECTOR_RENDER:?COLLECTOR_RENDER is not set}" >"$workdir/site-values.json"
 
 echo "rendered site values:"
 sed 's/^/  /' "$workdir/site-values.json"
 
 cp -rT "$flake" "$workdir/repo"
 chmod -R u+w "$workdir/repo"
-install -m 0644 "$workdir/site-values.json" "$workdir/repo/hosts/s13/site-values.json"
+install -m 0644 "$workdir/site-values.json" "$workdir/repo/hosts/collector/site-values.json"
 
 echo "validating rendered values..."
-nix build --dry-run "path:$workdir/repo#nixosConfigurations.s13.config.system.build.toplevel" \
+nix build --dry-run "path:$workdir/repo#nixosConfigurations.collector.config.system.build.toplevel" \
   || die "rendered values failed validation; nothing was touched"
 
 # ---- partition and mount ----------------------------------------------------
 
-disko="${S13_DISKO:?S13_DISKO is not set}"
+disko="${COLLECTOR_DISKO:?COLLECTOR_DISKO is not set}"
 if [ "$dry_run" = true ]; then
   echo "dry run: skipping disko and install. The disk would be erased with:"
-  echo "  $disko --mode destroy,format,mount --flake path:$workdir/repo#s13 --argstr disk $disk"
+  echo "  $disko --mode destroy,format,mount --flake path:$workdir/repo#collector --argstr disk $disk"
   exit 0
 fi
 
@@ -201,7 +201,7 @@ else
 fi
 
 "$disko" --mode destroy,format,mount $yes_flag \
-  --flake "path:$workdir/repo#s13" --argstr disk "$disk"
+  --flake "path:$workdir/repo#collector" --argstr disk "$disk"
 
 findmnt /mnt >/dev/null || die "disko did not mount the root filesystem"
 findmnt /mnt/boot >/dev/null || die "disko did not mount the ESP"
@@ -213,7 +213,7 @@ if [ -n "$credentials_file" ]; then
   install -D -m 0600 "$credentials_file" /mnt/var/lib/ahara-collector/credentials.json
 fi
 
-nixos-install --no-root-passwd --flake "path:$workdir/repo#s13"
+nixos-install --no-root-passwd --flake "path:$workdir/repo#collector"
 
 cat <<EOF
 

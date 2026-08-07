@@ -1,8 +1,8 @@
-# Validation for the S13 site attrset. Pure builtins — no nixpkgs — so tests
+# Validation for the collector site attrset. Pure builtins — no nixpkgs — so tests
 # and the flake can import it with zero dependencies. The API mirrors
 # ahara-vpn's lib/network-assertions.nix: validateSite returns a list of
 # human-readable errors (empty when valid); assertValid throws them. It
-# validates the derived site (hosts/s13/site.nix output), not the raw values,
+# validates the derived site (hosts/collector/site.nix output), not the raw values,
 # so derivation mistakes fail evaluation too.
 let
   inherit (builtins)

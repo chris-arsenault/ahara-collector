@@ -9,7 +9,7 @@ test-rust:
 	cd service && cargo test
 
 test-vm:
-	nix build --no-link -L .#checks.x86_64-linux.s13-vm
+	nix build --no-link -L .#checks.x86_64-linux.collector-vm
 
 fmt:
 	nix fmt .

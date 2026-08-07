@@ -15,7 +15,7 @@ let
   n = site.network;
 
   healthCheck = pkgs.writeShellApplication {
-    name = "s13-health-check";
+    name = "collector-health-check";
     # Self-contained on purpose: the updater runs this inside a service whose
     # PATH has no shell. `bash` must be a runtime input or every compound
     # check dies with command-not-found and reads as FAIL.
@@ -87,7 +87,7 @@ let
   };
 
   updateScript = pkgs.writeShellApplication {
-    name = "s13-update";
+    name = "collector-update";
     runtimeInputs = with pkgs; [
       git
       gawk
@@ -95,7 +95,7 @@ let
       nix
     ];
     text = ''
-      state_dir=/var/lib/s13-update
+      state_dir=/var/lib/collector-update
       values=/var/lib/ahara-collector/site-values.json
       mkdir -p "$state_dir"
 
@@ -130,14 +130,14 @@ let
       fi
 
       echo "building release $target with host values $values_hash (current: $current)"
-      workdir=$(mktemp -d /var/tmp/s13-update.XXXXXX)
+      workdir=$(mktemp -d /var/tmp/collector-update.XXXXXX)
       trap 'rm -rf "$workdir"' EXIT
       git clone --quiet --depth 1 "$repo_url" "$workdir/repo" 2>/dev/null || \
         git clone --quiet "$repo_url" "$workdir/repo"
       git -C "$workdir/repo" fetch --quiet --depth 1 origin "$target"
       git -C "$workdir/repo" -c advice.detachedHead=false checkout --quiet "$target"
       rm -rf "$workdir/repo/.git"
-      install -m 0644 "$values" "$workdir/repo/hosts/s13/site-values.json"
+      install -m 0644 "$values" "$workdir/repo/hosts/collector/site-values.json"
 
       next=$(nix build --no-link --print-out-paths \
         "path:$workdir/repo#nixosConfigurations.${site.host.name}.config.system.build.toplevel")
@@ -159,7 +159,7 @@ let
       # Health checks gate the deploy: a failing check restores the previous
       # generation and leaves the release uncommitted, so the next poll
       # retries it.
-      if ! "$next/sw/bin/s13-health-check"; then
+      if ! "$next/sw/bin/collector-health-check"; then
         echo "health check failed; rolling back to $prev"
         "$prev/bin/switch-to-configuration" test
         exit 1
@@ -175,7 +175,7 @@ in
 {
   environment.systemPackages = [ healthCheck ];
 
-  systemd.services.s13-update = {
+  systemd.services.collector-update = {
     description = "Fetch and activate the latest validated collector release";
     after = [ "network-online.target" ];
     wants = [ "network-online.target" ];
@@ -191,7 +191,7 @@ in
     };
   };
 
-  systemd.timers.s13-update = {
+  systemd.timers.collector-update = {
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnBootSec = "3min";

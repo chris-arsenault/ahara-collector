@@ -13,7 +13,7 @@ with rollback (its ADR-0001, ADR-0006, ADR-0008).
 
 ## Decision
 
-Adopt the pattern renamed for this host: `s13-update` timer and service,
+Adopt the pattern renamed for this host: `collector-update` timer and service,
 `(revision, values-hash)` change key so a values-only edit redeploys,
 health-check gate with rollback to the previous generation, and the store
 at `/var/lib/ahara-collector/site-values.json` seeded by the bootstrap

@@ -1,6 +1,6 @@
 {
   "_comment": "PLACEHOLDER values - what CI and the VM test build against. A real machine's store is host state at /var/lib/ahara-collector/site-values.json, rendered by the bootstrap installer and overlaid by the updater on every build. Edit that file (or re-bootstrap), never this one.",
-  "hostName": "s13",
+  "hostName": "collector",
   "stateVersion": "26.05",
   "adminAuthorizedKeys": [
     "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLACEHOLDERPLACEHOLDERPLACEHOLDERPLACEHOLD ops@placeholder"

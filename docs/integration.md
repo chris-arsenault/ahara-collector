@@ -182,7 +182,7 @@ is what restores data flow into the existing buckets, downsampler, and
 dashboards.
 
 1. Deploy the collector; add the three gateway flows; verify
-   `s13-health-check` and the VM-tested paths against real devices.
+   `collector-health-check` and the VM-tested paths against real devices.
 2. Switch `AIRWAVE_SSDP_TARGETS`; confirm WiiM discovery in airwave; remove
    the directed-broadcast flows from ahara-vpn.
 3. Switch the house-sensors collectors to the drain input with the
