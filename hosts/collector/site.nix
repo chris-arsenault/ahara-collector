@@ -58,9 +58,9 @@ in
     # Consumers reach the API by this name; the plain port stays bound for
     # the not-yet-cut-over TrueNAS puller (docs/backlog.md).
     hostName = "collector.${internalDomain}";
-    # Self-signed on first boot until the machine-identity appliance
-    # distributes a publicly-trusted certificate for this name (ADR-0008).
-    # This appliance runs no ACME client and holds no cloud credential.
+    # Supplied only by the machine-identity appliance (ADR-0008). This
+    # appliance generates no stand-in, runs no ACME client, and holds no cloud
+    # credential.
     # Beside the state directory rather than inside it: that one is 0750 so
     # the device credentials and the API token stay unreadable, and nginx
     # cannot traverse it to load a certificate.

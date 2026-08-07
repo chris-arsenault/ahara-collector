@@ -13,11 +13,10 @@ All notable user-visible changes are recorded here.
   nothing moves on disk. The hardware is still a Beelink S13 and the docs
   still say so where the physical machine is meant.
 - The pull API is served over TLS at `collector.local.ahara.io:8443` with a
-  publicly-trusted certificate the appliance issues and renews itself via
-  Route53 DNS-01, so the bearer token and the readings no longer cross the
-  gateway path in plaintext. The certificate is self-signed until the
-  machine-identity appliance distributes a trusted one, so this appliance
-  holds no cloud credential of any kind. The plain port stays open until the
+  publicly-trusted certificate the machine-identity appliance distributes, so
+  the bearer token and readings no longer cross the gateway path in plaintext.
+  This appliance generates no stand-in and holds no cloud credential of any
+  kind. The plain port stays open until the
   TrueNAS puller cuts over. The deploy health gate checks that the
   terminator answers, so a release that cannot serve TLS rolls back.
 - The S13 collector appliance exists: a NixOS host on the home LAN with a

@@ -5,10 +5,9 @@
 # fetches the shared publicly-trusted certificate. This appliance holds no
 # cloud credential and runs no ACME client of its own (ADR-0008).
 #
-# Everything here degrades quietly. Before the appliance exists, or while this
-# machine's id is not declared there, the terminator keeps serving the
-# self-signed certificate it generated on first boot, and the TrueNAS puller
-# keeps working against it.
+# There is no local fallback. Before the trust appliance exists, or while this
+# machine's id is not declared there, nginx cannot start and the deploy health
+# gate rejects the generation. The temporary plaintext pull path is independent.
 { site, ... }:
 let
   api = site.api;
@@ -24,8 +23,8 @@ in
 
     certificate = {
       enable = true;
-      # Written where the terminator already looks, so a fetched certificate
-      # replaces the self-signed one without the vhost changing.
+      # Written where the terminator already looks, so the fetched certificate
+      # can be installed without changing the vhost.
       destination = api.certificate;
       keyDestination = api.certificateKey;
       reloadUnits = [ "nginx.service" ];

@@ -5,9 +5,9 @@
 # verify a publicly-trusted chain, and the plaintext leg never leaves this
 # host's network stack.
 #
-# The certificate is self-signed on first boot and replaced by one the
-# machine-identity appliance obtains and distributes (ADR-0008). This
-# appliance runs no ACME client and holds no cloud credential of any kind.
+# The certificate comes only from the machine-identity appliance (ADR-0008).
+# This appliance generates no stand-in, runs no ACME client, and holds no
+# cloud credential of any kind.
 {
   site,
   lib,

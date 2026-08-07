@@ -8,9 +8,9 @@
 # keep in step. If ahara-trust ever becomes fetchable without credentials,
 # collapse these back into one input.
 #
-# It is deliberately shell over curl and openssl: both are already on every
-# appliance, mutual TLS is one flag, and nothing here needs to parse a
-# certificate. The design constraint is that it must be safe to run on a timer
+# It is deliberately shell over curl and openssl: mutual TLS is one flag, and
+# the only certificate parsing here checks local key, chain, expiry, and exact
+# identity. The design constraint is that it must be safe to run on a timer
 # forever — a device whose authority is unreachable, or whose id has not been
 # declared there, exits quietly and tries again.
 {
@@ -27,6 +27,7 @@ let
     runtimeInputs = with pkgs; [
       coreutils
       curl
+      gnused
       openssl
       jq
     ];
@@ -60,11 +61,33 @@ let
       # Verify the transport against the pinned CA from here on.
       verified=(--cacert "$chain")
 
+      same_key_pair() {
+        local certificate_public private_public
+        certificate_public=$(openssl x509 -in "$1" -pubkey -noout 2>/dev/null \
+          | openssl pkey -pubin -outform DER 2>/dev/null \
+          | openssl sha256) || return 1
+        private_public=$(openssl pkey -in "$2" -pubout -outform DER 2>/dev/null \
+          | openssl sha256) || return 1
+        [ "$certificate_public" = "$private_public" ]
+      }
+
+      identity_usable() {
+        local san uri_sans
+        [ -s "$cert" ] && [ -s "$key" ] || return 1
+        openssl x509 -checkend 0 -noout -in "$cert" >/dev/null 2>&1 || return 1
+        openssl verify -CAfile "$chain" "$cert" >/dev/null 2>&1 || return 1
+        same_key_pair "$cert" "$key" || return 1
+        san=$(openssl x509 -in "$cert" -noout -ext subjectAltName 2>/dev/null) || return 1
+        uri_sans=$(printf '%s\n' "$san" | tr ',' '\n' \
+          | sed -n 's/^[[:space:]]*URI://p')
+        [ "$uri_sans" = "$workload" ]
+      }
+
       renew_after() {
         # Half the certificate's life. An appliance off for less than that
         # recovers by itself; one off for longer falls back to enrolling
         # afresh, which needs nobody because its id is still declared.
-        local not_after now half
+        local not_after not_before now half
         not_after=$(date -d "$(openssl x509 -in "$cert" -noout -enddate | cut -d= -f2)" +%s)
         not_before=$(date -d "$(openssl x509 -in "$cert" -noout -startdate | cut -d= -f2)" +%s)
         now=$(date +%s)
@@ -95,7 +118,14 @@ let
         # identity this machine will accept.
         if ! openssl verify -CAfile "$chain" "$state/next.crt" >/dev/null 2>&1; then
           echo "issued certificate does not chain to the pinned authority; discarding"
-          rm -f "$state/next.crt" "$state/response.json"
+          rm -f "$state/next.key" "$state/next.crt" "$state/next.csr" \
+            "$state/next.json" "$state/response.json"
+          return 1
+        fi
+        if ! same_key_pair "$state/next.crt" "$state/next.key"; then
+          echo "issued certificate does not match the requested key; discarding"
+          rm -f "$state/next.key" "$state/next.crt" "$state/next.csr" \
+            "$state/next.json" "$state/response.json"
           return 1
         fi
         mv "$state/next.key" "$key"
@@ -106,7 +136,13 @@ let
         echo "identity issued for $workload"
       }
 
-      if [ -s "$cert" ] && [ -s "$key" ]; then
+      if { [ -e "$cert" ] || [ -e "$key" ]; } && ! identity_usable; then
+        echo "current identity is expired, corrupt, or mismatched; enrolling afresh"
+        rm -f "$cert" "$key" "$state/next.key" "$state/next.crt" \
+          "$state/next.csr" "$state/next.json" "$state/response.json"
+      fi
+
+      if identity_usable; then
         renew_after || exit 0
         request
         # Renewal authenticates with the certificate already held, so no
@@ -125,8 +161,9 @@ let
       # policy, so this either succeeds or is refused outright; there is
       # nothing to wait for and nobody to ask.
       [ -s "$state/next.json" ] || request
+      code=000
       code=$(curl -s "''${verified[@]}" --max-time 30 -o "$state/response.json" \
-        -w '%{http_code}' -X POST --data-binary @"$state/next.json" "$url/enroll" || echo 000)
+        -w '%{http_code}' -X POST --data-binary @"$state/next.json" "$url/enroll") || true
 
       # A refusal is permanent until someone changes the authority's policy,
       # so the unit fails and stays visible in `systemctl --failed`. Exiting
@@ -230,16 +267,19 @@ in
       };
     };
 
-    # Fetching the shared certificate rides the same identity and the same
-    # timer: a machine that can prove who it is may have the certificate, and
-    # one that cannot keeps whatever it is already serving.
+    # Fetching the shared certificate rides the same identity and cadence. The
+    # authority separately decides which machine identities may receive its
+    # private key; one that cannot keeps whatever it is already serving.
     systemd.services.ahara-certificate = lib.mkIf cfg.certificate.enable {
       description = "Fetch the shared publicly-trusted certificate";
       after = [
         "network-online.target"
         "ahara-enroll.service"
       ];
-      wants = [ "network-online.target" ];
+      wants = [
+        "network-online.target"
+        "ahara-enroll.service"
+      ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = lib.getExe (
@@ -249,6 +289,7 @@ in
               coreutils
               curl
               jq
+              openssl
               systemd
             ];
             text = ''
@@ -267,10 +308,11 @@ in
               # The authority terminates TLS with a certificate from the CA
               # pinned here when the identity was obtained, so the transport
               # is verified rather than taken on faith.
+              code=000
               code=$(curl -s --cacert "$state/authority.pem" \
                 --cert "$state/identity.crt" --key "$state/identity.key" \
                 --max-time 30 -o "$tmp/response.json" -w '%{http_code}' \
-                ${cfg.authorityUrl}/certificate || echo 000)
+                ${cfg.authorityUrl}/certificate) || true
 
               case "$code" in
                 200) ;;
@@ -282,9 +324,31 @@ in
               jq -e -r .certificate_pem < "$tmp/response.json" > "$tmp/fullchain.pem"
               jq -e -r .private_key_pem < "$tmp/response.json" > "$tmp/privkey.pem"
 
+              cert_public=$(openssl x509 -in "$tmp/fullchain.pem" -pubkey -noout 2>/dev/null \
+                | openssl pkey -pubin -outform DER 2>/dev/null \
+                | openssl sha256) || {
+                echo "authority returned no usable public certificate; keeping current"
+                exit 0
+              }
+              key_public=$(openssl pkey -in "$tmp/privkey.pem" -pubout -outform DER 2>/dev/null \
+                | openssl sha256) || {
+                echo "authority returned no usable private key; keeping current"
+                exit 0
+              }
+              if [ "$cert_public" != "$key_public" ]; then
+                echo "authority returned a mismatched certificate and key; keeping current"
+                exit 0
+              fi
+              if ! openssl x509 -checkend 0 -noout -in "$tmp/fullchain.pem" >/dev/null 2>&1; then
+                echo "authority returned an expired certificate; keeping current"
+                exit 0
+              fi
+
               # Replace only on change: reloading the terminator on every
               # tick would be churn, and comparing is cheaper than reloading.
-              if [ -s "$cert" ] && cmp -s "$tmp/fullchain.pem" "$cert"; then
+              if [ -s "$cert" ] && [ -s "$key" ] \
+                && cmp -s "$tmp/fullchain.pem" "$cert" \
+                && cmp -s "$tmp/privkey.pem" "$key"; then
                 exit 0
               fi
 
