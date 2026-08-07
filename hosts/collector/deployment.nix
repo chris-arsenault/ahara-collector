@@ -69,8 +69,9 @@ let
       check "collector API healthy" curl -sf --connect-timeout 3 http://${n.address}:${toString site.api.port}/health
       # Consumers reach the API only through the terminator, so a release
       # that cannot serve TLS rolls back. -k because the placeholder
-      # certificate is expected until the ACME credential is installed
-      # (ADR-0008); what is being checked is that it answers at all. nginx
+      # certificate is expected until the machine-identity appliance
+      # distributes a trusted one (ADR-0008); what is being checked is that
+      # it answers at all. nginx
       # binds an address networkd may hand over a moment late.
       tls_health="https://${n.address}:${toString site.api.tlsPort}/health"
       settle 15 curl -skf --connect-timeout 3 "$tls_health" || true

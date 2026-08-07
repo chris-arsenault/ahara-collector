@@ -20,21 +20,27 @@ challenge record.
 
 nginx terminates TLS on the appliance's own address and proxies to the
 collector service, which keeps speaking plain HTTP on its existing port. The
-certificate for `collector.local.ahara.io` is issued and renewed here through
-Route53 DNS-01 with a credential held as host state alongside the device
-credentials and the API token. The plaintext leg is a connection from the
-host to itself and never reaches a wire; the service's private key surface
-stays zero.
+plaintext leg is a connection from the host to itself and never reaches a
+wire; the service's private key surface stays zero.
+
+The certificate is self-signed on first boot and later replaced by one the
+machine-identity appliance obtains and distributes (ahara-vpn ADR-0015). This
+appliance runs no ACME client and holds no cloud credential: one machine
+holds the DNS credential for the whole household, because a credential per
+appliance grows the manual work with the number of appliances.
 
 ## Alternatives considered
 
 - **TLS inside the collector service** — one process, no proxy, but either a
   rustls/openssl dependency tree in a binary built offline from a pinned
   flake (ADR-0005) or hand-written TLS. Rejected on both counts.
-- **A self-signed certificate on the terminator** — no cloud credential, but
-  every consumer must either pin the certificate or disable verification, and
-  the latter is what plaintext already gets you. The DNS record and the ACME
-  path exist, so trust costs one credential.
+- **A self-signed certificate on the terminator, permanently** — no cloud
+  credential anywhere, but every consumer must either pin the certificate or
+  disable verification, and the latter is what plaintext already gets you.
+  This is the interim state until distribution exists, not the end state.
+- **This appliance running its own ACME client** — renews independently with
+  no distribution channel to build, at the cost of a long-lived cloud
+  credential on every machine that terminates TLS.
 - **Leave the API plaintext and rely on the inspected gateway flow** —
   Suricata sees the traffic precisely because anyone on the path can; a
   bearer token in the clear is the thing being fixed.
@@ -43,15 +49,13 @@ stays zero.
 
 ## Consequences
 
-- Consumers connect to `https://collector.local.ahara.io:8443` and verify a
-  public chain; the plain port stays bound until the TrueNAS puller cuts over
-  (docs/backlog.md), after which its firewall opening is removed.
-- The appliance holds one long-lived AWS credential, scoped to changing one
-  TXT record. Absent it, nginx serves a self-signed placeholder and every
-  other function of the appliance is unaffected. That rests on gating the
-  ordering unit (`acme-order-renew-<host>.service`) and never the unit that
-  generates the placeholder — gating the latter leaves nginx with no
-  certificate and the API unreachable.
+- Consumers connect to `https://collector.local.ahara.io:8443`; the plain
+  port stays bound until the TrueNAS puller cuts over (docs/backlog.md),
+  after which its firewall opening is removed.
+- The appliance holds no cloud credential, so compromising it yields none.
+  Until the machine-identity appliance distributes a trusted certificate,
+  consumers must pin or skip verification, which is the interim cost of not
+  putting a credential here.
 - The deploy health gate checks that the terminator answers, so a release
   that cannot serve TLS rolls back rather than silently taking the API off
   the network.

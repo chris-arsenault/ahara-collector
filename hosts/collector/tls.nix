@@ -5,10 +5,9 @@
 # verify a publicly-trusted chain, and the plaintext leg never leaves this
 # host's network stack.
 #
-# The certificate is issued and renewed here via Route53 DNS-01 (ahara-vpn
-# ADR-0015). Its credential is host state; without it the ACME order is
-# skipped and nginx serves the module's self-signed placeholder, so a missing
-# or broken issuance path degrades TLS trust and nothing else.
+# The certificate is self-signed on first boot and replaced by one the
+# machine-identity appliance obtains and distributes (ADR-0008). This
+# appliance runs no ACME client and holds no cloud credential of any kind.
 {
   site,
   lib,
@@ -36,7 +35,8 @@ in
           ssl = true;
         }
       ];
-      useACMEHost = api.hostName;
+      sslCertificate = api.certificate;
+      sslCertificateKey = api.certificateKey;
       locations."/" = {
         proxyPass = "http://${n.address}:${toString api.port}";
         # Drains are one spool segment; the default 60s read timeout is
@@ -49,6 +49,8 @@ in
   };
 
   systemd.services.nginx = {
+    after = [ "ahara-collector-tls.service" ];
+    requires = [ "ahara-collector-tls.service" ];
     # nginx binds the appliance address explicitly, and a bind attempted
     # before networkd has assigned it fails outright. Retry without a start
     # limit so boot ordering cannot leave the API terminator down.
@@ -56,29 +58,32 @@ in
     serviceConfig.RestartSec = lib.mkForce "2s";
   };
 
-  security.acme = {
-    acceptTerms = true;
-    defaults.email = api.acme.email;
-    certs.${api.hostName} = {
-      dnsProvider = "route53";
-      environmentFile = api.acme.credentialsFile;
-      # Route53's change-INSYNC wait already proves the TXT record is live;
-      # the appliance's own resolver is the gateway, which is authoritative
-      # for the internal subtree and never sees the public record.
-      dnsPropagationCheck = false;
-      group = "nginx";
-      reloadServices = [ "nginx" ];
+  # Self-signed until the machine-identity appliance distributes a
+  # publicly-trusted certificate for this name. This appliance runs no ACME
+  # client and holds no cloud credential.
+  systemd.services.ahara-collector-tls = {
+    description = "Generate the pull API TLS certificate on first boot";
+    wantedBy = [ "multi-user.target" ];
+    unitConfig.ConditionPathExists = "!${api.certificate}";
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
     };
+    path = [
+      pkgs.coreutils
+      pkgs.openssl
+    ];
+    script = ''
+      mkdir -p "$(dirname ${api.certificate})"
+      openssl req -x509 -newkey rsa:4096 -sha256 -nodes -days 3650 \
+        -subj "/CN=${api.hostName}" \
+        -addext "subjectAltName=DNS:${api.hostName},IP:${n.address}" \
+        -keyout ${api.certificateKey} -out ${api.certificate}
+      chown root:nginx ${api.certificateKey}
+      chmod 640 ${api.certificateKey}
+      chmod 644 ${api.certificate}
+    '';
   };
-
-  # Gate the ordering unit, never `acme-${hostName}.service`: that one
-  # generates the self-signed placeholder nginx loads until a real
-  # certificate exists, so skipping it leaves nginx with no certificate at
-  # all and the API unreachable. Only this unit consumes the credential.
-  # Installing the file and starting it (or waiting for its timer) performs
-  # the first issuance.
-  systemd.services."acme-order-renew-${api.hostName}".unitConfig.ConditionPathExists =
-    api.acme.credentialsFile;
 
   # Certificate expiry as a metric on the API's own /metrics surface would
   # need the service to read it; the appliance exports it the same way the
@@ -93,7 +98,7 @@ in
     script = ''
       dir=/var/lib/ahara-collector/metrics
       mkdir -p "$dir"
-      cert="/var/lib/acme/${api.hostName}/fullchain.pem"
+      cert="${api.certificate}"
       tmp=$(mktemp "$dir/.tls_cert.prom.XXXXXX")
       {
         if [ -r "$cert" ]; then

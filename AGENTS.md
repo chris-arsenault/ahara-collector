@@ -36,7 +36,7 @@ Read this before editing. [README.md](README.md) has the repository map.
 | Sensor pollers | `service/src/sensors.rs`, `service/src/kasa.rs` | Kasa KLAP is experimental until validated on hardware |
 | Spool | `service/src/spool.rs` | Bounded, oldest-dropped, ack-deletes |
 | API | `service/src/api.rs` | Single port; bearer for pulls, Basic for device pushes |
-| TLS terminator | `hosts/collector/tls.nix` | nginx + ACME in front of the API port |
+| TLS terminator | `hosts/collector/tls.nix` | nginx in front of the API port |
 | Updater + health gate | `hosts/collector/deployment.nix` | The ahara-vpn ADR-0001/0008 pattern |
 | Installer | `scripts/bootstrap-collector.sh` | scp a public key, run one command |
 

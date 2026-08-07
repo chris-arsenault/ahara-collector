@@ -6,11 +6,10 @@ set -euo pipefail
 # and overlaid by the updater on every build.
 #
 # Required: INTERFACE_MAC HOME_LAN_CIDR ADDRESS ROUTER_IP TRUENAS_IP
-#           ACME_EMAIL (the ACME account contact; expiry notices go here)
 # Newline-separated lists: DNS_SERVERS ADMIN_KEYS
 
 for v in INTERFACE_MAC HOME_LAN_CIDR ADDRESS ROUTER_IP TRUENAS_IP \
-  ACME_EMAIL DNS_SERVERS ADMIN_KEYS; do
+  DNS_SERVERS ADMIN_KEYS; do
   [ -n "${!v:-}" ] || { printf 'render-site-values: %s is not set\n' "$v" >&2; exit 1; }
 done
 
@@ -60,10 +59,7 @@ $(json_list "      " "$DNS_SERVERS")    ],
   },
   "api": {
     "port": 8850,
-    "tlsPort": 8443,
-    "acme": {
-      "email": $(json_string "$ACME_EMAIL")
-    }
+    "tlsPort": 8443
   },
   "airwaveSsdp": {
     "enable": true,

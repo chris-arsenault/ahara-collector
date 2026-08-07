@@ -5,6 +5,7 @@ WORKDIR /src
 COPY flake.nix flake.lock ./
 COPY hosts ./hosts
 COPY lib ./lib
+COPY modules ./modules
 COPY tests ./tests
 COPY scripts ./scripts
 COPY service ./service

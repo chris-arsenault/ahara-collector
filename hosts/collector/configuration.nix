@@ -13,6 +13,8 @@
     ./network.nix
     ./collector.nix
     ./tls.nix
+    ../../modules/enroll.nix
+    ./identity.nix
     ./deployment.nix
     ./hardening.nix
   ];

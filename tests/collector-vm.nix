@@ -252,21 +252,17 @@ pkgs.testers.runNixOSTest {
             "curl -skf https://192.168.65.10:8443/health | grep -q '\"status\":\"ok\"'",
             timeout=60,
         )
-        # No ACME credential exists in the VM, so the self-signed placeholder
-        # serves and an unverified request is refused: exactly the posture of
-        # an appliance whose credential is not yet installed (ahara-vpn
-        # ADR-0015). The order is skipped, never failed.
+        # The certificate is self-signed until the machine-identity appliance
+        # distributes a trusted one (ADR-0008), so an unverified request is
+        # refused.
         peer.fail("curl -sf --max-time 5 https://192.168.65.10:8443/health")
-        # The regression this guards: gating the placeholder generator
-        # instead of the ordering unit left nginx with no certificate at all
-        # and the API in a restart loop.
+        # The regression this guards: leaving nginx without a certificate put
+        # it in a restart loop and took the API off the network.
         collector.succeed("systemctl is-active nginx.service")
-        collector.succeed("test -s /var/lib/acme/collector.local.ahara.io/fullchain.pem")
-        collector.succeed("systemctl is-active acme-collector.local.ahara.io.service")
-        collector.fail(
-            "systemctl is-failed acme-order-renew-collector.local.ahara.io.service >/dev/null"
-        )
-        collector.fail("systemctl is-failed acme-collector.local.ahara.io.service >/dev/null")
+        collector.succeed("test -s /var/lib/ahara-collector-tls/api.crt")
+        collector.succeed("test $(stat -c %a /var/lib/ahara-collector-tls/api.key) = 640")
+        # This appliance runs no ACME client and holds no cloud credential.
+        collector.fail("systemctl list-units --all | grep -q acme")
         # Authorization passes through the terminator unchanged.
         peer.fail("curl -skf https://192.168.65.10:8443/readings/next")
 

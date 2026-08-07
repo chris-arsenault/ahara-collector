@@ -55,21 +55,17 @@ in
     # existing store predating it keeps evaluating, so the appliance never
     # silently stops updating.
     tlsPort = v.api.tlsPort or 8443;
-    # Consumers reach the API by this name and verify the chain against it;
-    # the plain port stays bound for the not-yet-cut-over TrueNAS puller
-    # (docs/backlog.md).
+    # Consumers reach the API by this name; the plain port stays bound for
+    # the not-yet-cut-over TrueNAS puller (docs/backlog.md).
     hostName = "collector.${internalDomain}";
-    # Publicly-trusted certificate via Route53 DNS-01 (ahara-vpn ADR-0015).
-    # The credential is host state like the device credentials and the
-    # token: absent, the terminator serves a self-signed placeholder and
-    # nothing else on the appliance is affected.
-    acme = {
-      # Operator contact for the ACME account, not topology: it is machine
-      # state like every other value here, so the committed placeholder is
-      # not a real address.
-      email = v.api.acme.email or "ops@placeholder.invalid";
-      credentialsFile = "/var/lib/ahara-collector/acme.env";
-    };
+    # Self-signed on first boot until the machine-identity appliance
+    # distributes a publicly-trusted certificate for this name (ADR-0008).
+    # This appliance runs no ACME client and holds no cloud credential.
+    # Beside the state directory rather than inside it: that one is 0750 so
+    # the device credentials and the API token stay unreadable, and nginx
+    # cannot traverse it to load a certificate.
+    certificate = "/var/lib/ahara-collector-tls/api.crt";
+    certificateKey = "/var/lib/ahara-collector-tls/api.key";
   };
 
   # Module configuration handed to the collector service as one JSON document

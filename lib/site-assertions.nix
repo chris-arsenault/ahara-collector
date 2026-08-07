@@ -239,17 +239,15 @@ let
     {
       path = [
         "api"
-        "acme"
-        "email"
+        "certificate"
       ];
-      check = s: isString s && match ".+@.+" s != null;
-      describe = "email address";
+      check = s: isString s && match "/.+" s != null;
+      describe = "absolute path";
     }
     {
       path = [
         "api"
-        "acme"
-        "credentialsFile"
+        "certificateKey"
       ];
       check = s: isString s && match "/.+" s != null;
       describe = "absolute path";

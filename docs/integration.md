@@ -6,7 +6,7 @@ placeholder values; substitute the real site values.
 
 ## ahara-vpn: gateway flows
 
-Three flows in `hosts/vp2440/site.nix` `allowedFlows`, replacing the
+Three flows in `hosts/gateway/site.nix` `allowedFlows`, replacing the
 directed-broadcast pair `airwave-ssdp-discovery` / `airwave-ssdp-replies`
 once the collector is live. All three are ordinary forward flows, so they
 regain the Suricata inspection the gateway-hosted relay lost:
