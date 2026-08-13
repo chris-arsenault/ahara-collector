@@ -1,6 +1,6 @@
 # 0004 — Deployment reuses the ahara-vpn pull pattern
 
-- Status: Accepted
+- Status: Superseded in part by [ADR-0009](0009-versioned-topology-and-local-machine-values.md)
 - Date: 2026-08-05
 
 ## Context

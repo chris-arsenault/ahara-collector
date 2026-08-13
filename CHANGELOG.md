@@ -6,6 +6,14 @@ All notable user-visible changes are recorded here.
 
 ### Appliance
 
+- Static topology and service settings now live in versioned `topology.json`;
+  only interface identity and administrator keys remain in machine-local
+  `machine-values.json`. Existing combined stores migrate automatically and
+  are archived, and bootstrap no longer duplicates topology as command flags.
+- The collector moves from the home LAN to `192.168.30.2` on the dedicated
+  IoT LAN. Its gateway, internal DNS resolver, firewall source network, SSDP
+  broadcast, sensor discovery, tests, and operator examples move with it;
+  identity remains bound to `collector.local.ahara.io`.
 - Everything is named for what it does rather than what it is:
   `hosts/collector`, `nixosConfigurations.collector`, the `collector-update`
   and `collector-health-check` units, `bootstrap-collector`, and the hostname

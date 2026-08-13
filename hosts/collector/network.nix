@@ -1,4 +1,4 @@
-# Single-homed on the home LAN: one interface, renamed by permanent MAC so
+# Single-homed on the IoT LAN: one interface, renamed by permanent MAC so
 # re-plugging or hardware swaps are a one-value change in the configuration
 # store. Server-subnet peers (TrueNAS) arrive routed through the VP2440 with
 # original source addresses (the gateway does no NAT), so input rules pin
@@ -57,20 +57,20 @@ in
     enable = true;
     allowPing = true;
     extraInputRules = ''
-      # Admin SSH from the home LAN only.
-      ip saddr ${n.homeLanCidr} tcp dport 22 accept comment "collector:ssh-home"
+      # Admin SSH from the trusted admin LAN only.
+      ip saddr ${n.adminLanCidr} tcp dport 22 accept comment "collector:ssh-admin"
 
       # Pull API over TLS (ahara-vpn ADR-0015): the terminator fronts the
       # service at collector.local.ahara.io, so nothing crosses the wire in
       # plaintext.
-      ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } tcp dport ${toString site.api.tlsPort} accept comment "collector:api-tls"
+      ip saddr { ${n.truenasIp}, ${n.adminLanCidr}, ${n.homeLanCidr} } tcp dport ${toString site.api.tlsPort} accept comment "collector:api-tls"
 
       # The plain port stays reachable until the TrueNAS puller cuts over to
       # the TLS endpoint (docs/backlog.md).
-      ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } tcp dport ${toString site.api.port} accept comment "collector:api"
+      ip saddr { ${n.truenasIp}, ${n.adminLanCidr}, ${n.homeLanCidr} } tcp dport ${toString site.api.port} accept comment "collector:api"
 
       # Airwave SSDP ingress (unicast from TrueNAS) and on-link SSDP
-      # multicast/broadcast from home devices.
+      # multicast/broadcast from IoT devices.
       ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } udp dport ${toString c.airwaveSsdp.ssdpPort} accept comment "collector:ssdp"
 
       # Renderer answers to re-originated M-SEARCH arrive unicast on the

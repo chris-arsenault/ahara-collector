@@ -6,9 +6,9 @@ placeholder values; substitute the real site values.
 
 ## ahara-vpn: gateway flows
 
-Three flows in `hosts/gateway/site.nix` `allowedFlows`, replacing the
+Four flows in `hosts/gateway/site.nix` `allowedFlows`, replacing the
 directed-broadcast pair `airwave-ssdp-discovery` / `airwave-ssdp-replies`
-once the collector is live. All three are ordinary forward flows, so they
+once the collector is live. All four are ordinary forward flows, so they
 regain the Suricata inspection the gateway-hosted relay lost:
 
 ```nix
@@ -20,8 +20,8 @@ regain the Suricata inspection the gateway-hosted relay lost:
   description = "Airwave SSDP discovery and announcements to the collector appliance";
   sourceZone = "servers";
   source = truenasIp;
-  destZone = "home";
-  destination = collectorIp; # 192.168.65.10
+  destZone = "iot";
+  destination = collectorIp; # 192.168.30.2
   inspect = true;
   protocol = "udp";
   ports = [ 1900 ];
@@ -32,7 +32,7 @@ regain the Suricata inspection the gateway-hosted relay lost:
   # from the collector's fixed relay port.
   name = "collector-to-airwave-ssdp";
   description = "Collector SSDP replies and relayed searches to Airwave";
-  sourceZone = "home";
+  sourceZone = "iot";
   source = collectorIp;
   destZone = "servers";
   destination = truenasIp;
@@ -50,7 +50,7 @@ regain the Suricata inspection the gateway-hosted relay lost:
   description = "TrueNAS readings pull from the collector API";
   sourceZone = "servers";
   source = truenasIp;
-  destZone = "home";
+  destZone = "iot";
   destination = collectorIp;
   inspect = true;
   protocol = "tcp";
@@ -62,7 +62,7 @@ regain the Suricata inspection the gateway-hosted relay lost:
   description = "TrueNAS readings pull from the collector API over TLS";
   sourceZone = "servers";
   source = truenasIp;
-  destZone = "home";
+  destZone = "iot";
   destination = collectorIp;
   inspect = true;
   protocol = "tcp";
@@ -70,20 +70,18 @@ regain the Suricata inspection the gateway-hosted relay lost:
 }
 ```
 
-Both flows and the `collector.local.ahara.io` record are declared in the
+These flows and the `collector.local.ahara.io` record are declared in the
 gateway's `site.nix`; `collectorIp` is one of its site values. Once the
 house-sensors collectors read from the collector API instead of polling
-devices, `truenas-to-iot-discovery`, `iot-discovery-replies`, and
-`truenas-to-iot-poll` retire, and the plain-port flow retires with the
-puller's cutover.
+devices, the old TrueNAS-to-device discovery and polling flows are absent.
+The plain-port flow retires with the puller's TLS cutover.
 
 ## airwave: target change
 
-`AIRWAVE_SSDP_TARGETS` currently ends with the failed attempt's gateway
-address (`192.168.66.1`). Point it at the collector instead:
+Point `AIRWAVE_SSDP_TARGETS` at the collector's IoT-LAN address:
 
 ```
-AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.65.10
+AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.30.2
 ```
 
 Nothing else in airwave changes: it still sends M-SEARCH from :1901,
@@ -115,7 +113,7 @@ one per reading:
 {
   "module": "envSensors",
   "device": {
-    "ip": "192.168.65.42",
+    "ip": "192.168.30.42",
     "name": "ATOM3U-ENV3-005",
     "model": "ENV3",
     "deviceId": "ATOM3U-ENV3-005",
@@ -154,7 +152,7 @@ unit conversion applied there.
 1. `GET https://collector.local.ahara.io:8443/readings/next?module=<name>`
    with `authorization: Bearer <token>`, verifying the chain normally — the
    appliance serves a publicly-trusted certificate (ADR-0008). The plain
-   `http://192.168.65.10:8850` endpoint stays available until this cutover
+   `http://192.168.30.2:8850` endpoint stays available until this cutover
    completes (docs/backlog.md).
    - `204` — stream empty; sleep (10 s is fine) and retry.
    - `200` — body `{"batchId": "...", "module": "...", "lines": "..."}`;
@@ -177,7 +175,7 @@ Influx settings. Poll every 10 s; each batch is at most one spool segment
 ## Cutover order
 
 The gateway firewall blocks the house-sensors collectors from reaching
-home-LAN devices directly, so switching their input to the appliance's API
+IoT-LAN devices directly, so switching their input to the appliance's API
 is what restores data flow into the existing buckets, downsampler, and
 dashboards.
 

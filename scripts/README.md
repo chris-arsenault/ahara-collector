@@ -2,8 +2,9 @@
 
 - `bootstrap-collector.sh` (+ `.nix` wrapper, exposed as `nix run .#bootstrap-collector`)
   — one-command install on the NixOS installer: discovers the NIC, renders
-  and validates this machine's values, erases the disk with the checked-in
-  disko layout, seeds the configuration store (and optionally the
+  and validates this machine's hardware/access identity with versioned
+  topology, erases the disk with the checked-in disko layout, seeds the
+  machine store (and optionally the
   credentials file), and installs. See the runbook for the full procedure.
-- `render-site-values.sh` — env-vars → `site-values.json` renderer used by
+- `render-machine-values.sh` — env-vars → `machine-values.json` renderer used by
   the bootstrap; plain bash, no nix.

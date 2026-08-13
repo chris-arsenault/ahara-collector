@@ -1,7 +1,7 @@
 # ahara-collector
 
-The Ahara home-LAN IoT collector appliance: a NixOS host (Beelink Mini S13)
-that lives on the home LAN, relays SSDP between Airwave and the WiiM
+The Ahara IoT collector appliance: a NixOS host (Beelink Mini S13)
+that lives on the dedicated IoT LAN, relays SSDP between Airwave and the WiiM
 players, polls the house's IoT sensors with locally held credentials,
 buffers readings in a bounded on-disk spool, and serves everything to
 TrueNAS through one authenticated API port, served over TLS at
@@ -18,7 +18,7 @@ to originate on the WiiM subnet itself (ADR-0001).
 | [`hosts/collector/`](hosts/collector/) | The appliance's NixOS configuration; `site.nix` is the single source of truth |
 | [`service/`](service/) | The collector service: dependency-free Rust, one binary |
 | [`lib/`](lib/) | Pure-nix site validation |
-| [`scripts/`](scripts/) | `bootstrap-collector` installer and the site-values renderer |
+| [`scripts/`](scripts/) | `bootstrap-collector` installer and the machine-values renderer |
 | [`tests/`](tests/) | Eval-time site validation and the two-VM liveness test |
 | [`docs/`](docs/) | [Architecture](docs/architecture.md), [runbook](docs/runbook.md), [integration](docs/integration.md), [ADRs](docs/adr/), [backlog](docs/backlog.md) |
 
@@ -61,6 +61,6 @@ Delete the local copy afterwards; it never belongs in a repo.
 ## Deployment
 
 CI validates `main` and advances the `release` branch; the appliance polls
-that ref every two minutes, overlays its host values, builds, activates,
+that ref every two minutes, overlays its machine values, builds, activates,
 and keeps the release only when the health check passes. First install is
 one `bootstrap-collector` command ([runbook](docs/runbook.md)).

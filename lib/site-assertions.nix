@@ -143,6 +143,14 @@ let
     {
       path = [
         "network"
+        "adminLanCidr"
+      ];
+      check = isCidr;
+      describe = "IPv4 CIDR";
+    }
+    {
+      path = [
+        "network"
         "address"
       ];
       check = isIp;

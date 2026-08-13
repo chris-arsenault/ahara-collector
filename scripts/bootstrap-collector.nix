@@ -19,7 +19,7 @@ pkgs.writeShellApplication {
   text = ''
     export COLLECTOR_BOOTSTRAP_FLAKE=${self}
     export COLLECTOR_DISKO=${diskoPackage}/bin/disko
-    export COLLECTOR_RENDER=${./render-site-values.sh}
+    export COLLECTOR_RENDER_MACHINE=${./render-machine-values.sh}
     exec ${pkgs.bash}/bin/bash ${./bootstrap-collector.sh} "$@"
   '';
 }

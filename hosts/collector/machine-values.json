@@ -1,0 +1,7 @@
+{
+  "_comment": "PLACEHOLDER machine facts for CI. Bootstrap writes the installed host's interface identity and administrator keys to /var/lib/ahara-collector/machine-values.json; the updater overlays that file on every build.",
+  "interfaceMac": "aa:bb:cc:dd:ee:01",
+  "adminAuthorizedKeys": [
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLACEHOLDERPLACEHOLDERPLACEHOLDERPLACEHOLD ops@placeholder"
+  ]
+}

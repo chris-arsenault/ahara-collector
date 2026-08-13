@@ -1,15 +1,14 @@
 # hosts/collector
 
 The appliance's NixOS configuration. `configuration.nix` is a pure
-composition root; each module owns one concern and reads every value from
-`site.nix` (via `specialArgs`). `site-values.json` holds the committed
-placeholders — a real machine's values are host state at
-`/var/lib/ahara-collector/site-values.json`, overlaid by the updater on
-every build.
+composition root; each module owns one concern and reads the composed result
+from `site.nix` (via `specialArgs`). Versioned `topology.json` holds network
+and service settings. A real host's `machine-values.json` holds its interface
+MAC and administrator keys and is overlaid by the updater on every build.
 
 | File | Concern |
 | ---- | ------- |
-| `site.nix` | Single source of truth, derived from the values store |
+| `site.nix` | Composition of versioned topology and local machine values |
 | `network.nix` | MAC→`lan0` rename, static addressing, input firewall |
 | `collector.nix` | The collector service, its config rendering, token + credentials state |
 | `tls.nix` | nginx TLS terminator for the API and its certificate |

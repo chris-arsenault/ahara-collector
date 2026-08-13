@@ -6,6 +6,20 @@
 let
   lib = import ../lib/site-assertions.nix;
   site = import ../hosts/collector/site.nix { };
+  topology = removeAttrs (builtins.fromJSON (builtins.readFile ../hosts/collector/topology.json)) [
+    "_comment"
+  ];
+  machine = removeAttrs (builtins.fromJSON (
+    builtins.readFile ../hosts/collector/machine-values.json
+  )) [ "_comment" ];
+  legacyValues = topology // {
+    adminAuthorizedKeys = machine.adminAuthorizedKeys;
+    network = topology.network // {
+      address = "192.168.65.10";
+      interfaceMac = machine.interfaceMac;
+    };
+  };
+  migratedSite = import ../hosts/collector/site.nix { inherit legacyValues; };
 
   goodErrors = lib.validateSite site;
 
@@ -23,16 +37,20 @@ let
       s = withNetwork { address = "10.0.0.5"; };
     }
     {
+      name = "malformed-admin-cidr";
+      s = withNetwork { adminLanCidr = "not-a-cidr"; };
+    }
+    {
       name = "address-is-broadcast";
-      s = withNetwork { address = "192.168.65.255"; };
+      s = withNetwork { address = "192.168.30.255"; };
     }
     {
       name = "address-equals-router";
       s = withNetwork { address = site.network.routerIp; };
     }
     {
-      name = "truenas-inside-home-lan";
-      s = withNetwork { truenasIp = "192.168.65.9"; };
+      name = "truenas-inside-iot-lan";
+      s = withNetwork { truenasIp = "192.168.30.9"; };
     }
     {
       name = "malformed-mac";
@@ -103,6 +121,8 @@ let
 in
 if goodErrors != [ ] then
   throw "committed placeholder site failed validation:\n  - ${builtins.concatStringsSep "\n  - " goodErrors}"
+else if migratedSite.network.address != topology.network.address then
+  throw "legacy site-values topology overrode versioned topology"
 else if accepted != [ ] then
   throw "broken cases wrongly accepted: ${builtins.concatStringsSep ", " acceptedNames}"
 else

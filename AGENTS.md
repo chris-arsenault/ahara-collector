@@ -6,9 +6,10 @@ Read this before editing. [README.md](README.md) has the repository map.
 
 - **Never push without being asked.** Pushing `main` deploys: CI advances
   `release` and the appliance activates it within minutes.
-- **`hosts/collector/site.nix` is the sole source of addresses and ports.** No
-  literal IP, CIDR, MAC, or port belongs in any module, script, or the Rust
-  service — the service receives topology as a rendered JSON config.
+- **`hosts/collector/site.nix` is the sole composition point.** Addresses,
+  CIDRs, ports, and service settings live in versioned `topology.json`; the
+  interface MAC and administrator keys live in machine-local
+  `machine-values.json`. No literal topology belongs in a module or service.
 - **Secrets never enter the repo or the Nix store.** Device credentials and
   the API token are host state under `/var/lib/ahara-collector/`, passed to
   the service via systemd credentials. Public keys are the only key material

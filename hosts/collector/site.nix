@@ -1,17 +1,37 @@
-# Single source of truth for the collector appliance. Machine-specific
-# inputs live in site-values.json (placeholders in git; a real machine's store
-# is host state overlaid at build time, the ahara-vpn ADR-0006 pattern);
-# everything here derives from those values or is a topology constant, so no
-# value is ever declared twice. lib/site-assertions.nix validates the result
-# at evaluation time.
+# Single composition point for the collector appliance. Infrequent topology
+# and service changes live in topology.json and move through Git. Hardware and
+# access identity live in machine-values.json on the host and are overlaid at
+# build time. A former combined site-values.json is accepted only as migration
+# input for those machine facts; its topology never overrides the release.
+# lib/site-assertions.nix validates the composed result at evaluation time.
 #
-#   import ./site.nix { }                      -> production site
-#   import ./site.nix { values = ...; }        -> test variant
+#   import ./site.nix { }                         -> production site
+#   import ./site.nix { machineValues = ...; }    -> test hardware variant
 {
-  values ? removeAttrs (builtins.fromJSON (builtins.readFile ./site-values.json)) [ "_comment" ],
+  topology ? removeAttrs (builtins.fromJSON (builtins.readFile ./topology.json)) [ "_comment" ],
+  legacyValues ?
+    if builtins.pathExists ./site-values.json then
+      removeAttrs (builtins.fromJSON (builtins.readFile ./site-values.json)) [ "_comment" ]
+    else
+      { },
+  machineValues ? removeAttrs (builtins.fromJSON (builtins.readFile ./machine-values.json)) [
+    "_comment"
+  ],
 }:
 let
-  v = values;
+  # The legacy overlay lets the first release after this split build on a
+  # host whose old updater still copied site-values.json into the checkout.
+  # Only machine identity is read from it. topology.json wins immediately.
+  legacyMachine =
+    if legacyValues ? network && legacyValues.network ? interfaceMac then
+      {
+        interfaceMac = legacyValues.network.interfaceMac;
+        adminAuthorizedKeys = legacyValues.adminAuthorizedKeys;
+      }
+    else
+      { };
+  machine = machineValues // legacyMachine;
+  v = topology;
   lib = import ../../lib/site-assertions.nix;
   n = v.network;
   homeBroadcast = lib.broadcastOf n.homeLanCidr;
@@ -25,21 +45,22 @@ in
   host = {
     name = v.hostName;
     stateVersion = v.stateVersion;
-    adminAuthorizedKeys = v.adminAuthorizedKeys;
+    adminAuthorizedKeys = machine.adminAuthorizedKeys;
   };
 
   network = {
     inherit (n)
-      interfaceMac
       homeLanCidr
+      adminLanCidr
       address
       routerIp
       dnsServers
       truenasIp
       ;
+    interfaceMac = machine.interfaceMac;
     inherit homeBroadcast prefixLength;
     # The appliance has exactly one network identity: a single interface on
-    # the home LAN. Server-subnet traffic (Airwave SSDP in, readings pull in)
+    # the IoT LAN. Server-subnet traffic (Airwave SSDP in, readings pull in)
     # arrives routed through the VP2440 with its original source address, so
     # local firewall rules can pin flows to the TrueNAS address.
     interfaceName = "lan0";

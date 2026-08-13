@@ -21,12 +21,6 @@ future-state behavior.
   `voltage-data`, and the gateway's TrueNAS→IoT flows are removed
   (docs/integration.md tracks the order).
 
-## Network
-
-- The appliance moves to the dedicated gateway-served IoT VLAN when
-  ahara-vpn adds it — a re-address in the configuration store, plus new
-  gateway flow sources.
-
 ## Observability
 
 - Collector metrics are scraped into the platform observability stack and

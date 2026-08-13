@@ -1,7 +1,7 @@
 # Two-VM liveness test of the composed appliance. The collector node runs
 # the real host modules (network, collector service, deployment,
-# hardening); the peer node plays every neighbor at once: the home router
-# (192.168.65.1), TrueNAS/Airwave (192.168.66.3, reachable because the peer
+# hardening); the peer node plays every neighbor at once: the IoT router
+# (192.168.30.1), TrueNAS/Airwave (192.168.66.3, reachable because the peer
 # owns that address on the shared link and is the collector's default
 # gateway), a WiiM renderer, and an AtomS3U environment sensor.
 #
@@ -17,21 +17,39 @@
 { pkgs }:
 let
   sitelib = import ../lib/site-assertions.nix;
-  baseValues =
-    builtins.removeAttrs (builtins.fromJSON (builtins.readFile ../hosts/collector/site-values.json))
-      [
-        "_comment"
-      ];
-  testValues = baseValues // {
-    network = baseValues.network // {
-      interfaceMac = "52:54:00:12:01:01";
-    };
+  baseTopology = removeAttrs (builtins.fromJSON (
+    builtins.readFile ../hosts/collector/topology.json
+  )) [ "_comment" ];
+  baseMachine = removeAttrs (builtins.fromJSON (
+    builtins.readFile ../hosts/collector/machine-values.json
+  )) [ "_comment" ];
+  testTopology = baseTopology // {
     # No KLAP mock exists; the Kasa module is exercised by unit tests.
-    kasa = baseValues.kasa // {
+    kasa = baseTopology.kasa // {
       enable = false;
     };
   };
-  testSite = sitelib.assertValid (import ../hosts/collector/site.nix { values = testValues; });
+  testMachine = baseMachine // {
+    interfaceMac = "52:54:00:12:01:01";
+  };
+  machineStore = pkgs.writeText "collector-machine-values.json" (builtins.toJSON testMachine);
+  legacyStore = pkgs.writeText "collector-legacy-site-values.json" (
+    builtins.toJSON (
+      testTopology
+      // {
+        adminAuthorizedKeys = testMachine.adminAuthorizedKeys;
+        network = testTopology.network // {
+          interfaceMac = testMachine.interfaceMac;
+        };
+      }
+    )
+  );
+  testSite = sitelib.assertValid (
+    import ../hosts/collector/site.nix {
+      topology = testTopology;
+      machineValues = testMachine;
+    }
+  );
 
   mockEnvSensor = pkgs.writeScriptBin "mock-env-sensor" ''
     #!${pkgs.python3}/bin/python3
@@ -96,7 +114,7 @@ let
         b"HTTP/1.1 200 OK\r\n"
         b"CACHE-CONTROL: max-age=1800\r\n"
         b"EXT:\r\n"
-        b"LOCATION: http://192.168.65.60:49152/description.xml\r\n"
+        b"LOCATION: http://192.168.30.60:49152/description.xml\r\n"
         b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
         b"USN: uuid:vm-wiim::urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
         b"\r\n"
@@ -127,7 +145,7 @@ let
         b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
         b"\r\n"
     )
-    s.sendto(msearch, ("192.168.65.10", 1900))
+    s.sendto(msearch, ("192.168.30.2", 1900))
     data, addr = s.recvfrom(4096)
     assert b"200 OK" in data, data
     assert b"uuid:vm-wiim" in data, data
@@ -165,6 +183,9 @@ pkgs.testers.runNixOSTest {
       networking.hostName = "collector-test";
       system.stateVersion = "26.05";
       environment.systemPackages = [ pkgs.curl ];
+      systemd.tmpfiles.rules = [
+        "C /var/lib/ahara-collector/machine-values.json 0644 root root - ${machineStore}"
+      ];
 
       # Stands in for the trust appliance, which is not in this test. The
       # appliance generates nothing itself: without a certificate nginx does
@@ -208,9 +229,9 @@ pkgs.testers.runNixOSTest {
       networking.firewall.enable = false;
       networking.useDHCP = false;
       networking.interfaces.eth1.ipv4.addresses = [
-        # Home router — the collector's default gateway.
+        # IoT router — the collector's default gateway.
         {
-          address = "192.168.65.1";
+          address = "192.168.30.1";
           prefixLength = 24;
         }
         # TrueNAS/Airwave, on-link here so no real router is needed.
@@ -220,7 +241,7 @@ pkgs.testers.runNixOSTest {
         }
         # The WiiM renderer's advertised address.
         {
-          address = "192.168.65.60";
+          address = "192.168.30.60";
           prefixLength = 24;
         }
       ];
@@ -253,8 +274,8 @@ pkgs.testers.runNixOSTest {
 
     with subtest("interface renamed by MAC and addressed"):
         collector.wait_until_succeeds("ip link show lan0")
-        collector.wait_until_succeeds("ip -4 addr show lan0 | grep -qF 'inet 192.168.65.10/24'")
-        collector.succeed("ip route show default | grep -q 'via 192.168.65.1'")
+        collector.wait_until_succeeds("ip -4 addr show lan0 | grep -qF 'inet 192.168.30.2/24'")
+        collector.succeed("ip route show default | grep -q 'via 192.168.30.1'")
 
     with subtest("firewall: default drop with the declared surface only"):
         collector.succeed("nft list ruleset | grep -qF 'collector:api'")
@@ -263,6 +284,16 @@ pkgs.testers.runNixOSTest {
         collector.succeed("nft list ruleset | grep -qF 'collector:env-discovery-replies'")
 
     with subtest("first-boot state: API token generated"):
+        collector.wait_for_unit("collector-config-migrate.service")
+        collector.succeed("systemctl stop collector-config-migrate.service")
+        collector.succeed(
+            "rm -f /var/lib/ahara-collector/machine-values.json && "
+            "install -m 0644 ${legacyStore} /var/lib/ahara-collector/site-values.json"
+        )
+        collector.succeed("systemctl start collector-config-migrate.service")
+        collector.succeed("test -s /var/lib/ahara-collector/machine-values.json")
+        collector.succeed("test -f /var/lib/ahara-collector/site-values.json.migrated")
+        collector.fail("grep -q '\"address\"' /var/lib/ahara-collector/machine-values.json")
         collector.wait_for_unit("ahara-collector-token.service")
         collector.succeed("test -s /var/lib/ahara-collector/api-token")
         collector.succeed("test $(stat -c %a /var/lib/ahara-collector/api-token) = 600")
@@ -270,24 +301,24 @@ pkgs.testers.runNixOSTest {
     with subtest("collector service runs and binds its sockets"):
         collector.wait_for_unit("ahara-collector.service")
         collector.wait_until_succeeds("ss -uln | grep -qF '0.0.0.0:1900'")
-        collector.wait_until_succeeds("ss -uln | grep -qF '192.168.65.10:1901'")
-        collector.wait_until_succeeds("ss -tln | grep -qF '192.168.65.10:8850'")
+        collector.wait_until_succeeds("ss -uln | grep -qF '192.168.30.2:1901'")
+        collector.wait_until_succeeds("ss -tln | grep -qF '192.168.30.2:8850'")
 
     with subtest("health endpoint is open; data endpoints are token-gated"):
-        peer.wait_until_succeeds("curl -sf http://192.168.65.10:8850/health | grep -q '\"status\":\"ok\"'")
-        peer.fail("curl -sf http://192.168.65.10:8850/readings/next")
-        peer.fail("curl -sf -H 'authorization: Bearer wrong' http://192.168.65.10:8850/metrics")
+        peer.wait_until_succeeds("curl -sf http://192.168.30.2:8850/health | grep -q '\"status\":\"ok\"'")
+        peer.fail("curl -sf http://192.168.30.2:8850/readings/next")
+        peer.fail("curl -sf -H 'authorization: Bearer wrong' http://192.168.30.2:8850/metrics")
 
     with subtest("TLS terminator fronts the same API"):
         collector.wait_for_unit("nginx.service")
         peer.wait_until_succeeds(
-            "curl -skf https://192.168.65.10:8443/health | grep -q '\"status\":\"ok\"'",
+            "curl -skf https://192.168.30.2:8443/health | grep -q '\"status\":\"ok\"'",
             timeout=60,
         )
         # The certificate here stands in for the trust appliance's and is not
         # publicly trusted, so an unpinned client refuses it. In production
         # the distributed one is trusted and this succeeds.
-        peer.fail("curl -sf --max-time 5 https://192.168.65.10:8443/health")
+        peer.fail("curl -sf --max-time 5 https://192.168.30.2:8443/health")
         # The appliance generates no certificate of its own: it obtains one
         # from the trust appliance or serves nothing. A placeholder would let
         # the terminator come up while the machine was misconfigured.
@@ -297,7 +328,7 @@ pkgs.testers.runNixOSTest {
         # No ACME client and no cloud credential either.
         collector.fail("systemctl list-units --all | grep -q acme")
         # Authorization passes through the terminator unchanged.
-        peer.fail("curl -skf https://192.168.65.10:8443/readings/next")
+        peer.fail("curl -skf https://192.168.30.2:8443/readings/next")
 
     token = collector.succeed("cat /var/lib/ahara-collector/api-token").strip()
     auth = f"-H 'authorization: Bearer {token}'"
@@ -316,17 +347,17 @@ pkgs.testers.runNixOSTest {
     with subtest("sensor discovery, polling, and spooling"):
         peer.wait_for_unit("mock-env-sensor.service")
         collector.wait_until_succeeds(
-            f"curl -sf {auth} http://192.168.65.10:8850/devices | grep -q 'VM-SENSOR-1'",
+            f"curl -sf {auth} http://192.168.30.2:8850/devices | grep -q 'VM-SENSOR-1'",
             timeout=120,
         )
         peer.wait_until_succeeds(
-            f"curl -sf {auth} 'http://192.168.65.10:8850/readings/next?module=envSensors' | grep -q 'temperature_c'",
+            f"curl -sf {auth} 'http://192.168.30.2:8850/readings/next?module=envSensors' | grep -q 'temperature_c'",
             timeout=120,
         )
 
     with subtest("TrueNAS pull cycle: drain then ack"):
         batch = peer.succeed(
-            f"curl -sf {auth} 'http://192.168.65.10:8850/readings/next?module=envSensors'"
+            f"curl -sf {auth} 'http://192.168.30.2:8850/readings/next?module=envSensors'"
         )
         doc = json.loads(batch)
         reading = json.loads(doc["lines"].splitlines()[0])
@@ -336,7 +367,7 @@ pkgs.testers.runNixOSTest {
         assert reading["timestampNs"] > 0, reading
         ack = json.dumps({"module": "envSensors", "batchId": doc["batchId"]})
         out = peer.succeed(
-            f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.65.10:8850/readings/ack"
+            f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.30.2:8850/readings/ack"
         )
         assert '"acked":true' in out, out
 
@@ -346,14 +377,14 @@ pkgs.testers.runNixOSTest {
 
     with subtest("ingest accepts device pushes with Basic auth"):
         pushed = json.dumps({"module": "push", "values": {"v": 42}})
-        peer.fail(f"curl -sf -X POST -d {shlex.quote(pushed)} http://192.168.65.10:8850/ingest")
+        peer.fail(f"curl -sf -X POST -d {shlex.quote(pushed)} http://192.168.30.2:8850/ingest")
         out = peer.succeed(
-            f"curl -sf -X POST -u admin:vmpass -d {shlex.quote(pushed)} http://192.168.65.10:8850/ingest"
+            f"curl -sf -X POST -u admin:vmpass -d {shlex.quote(pushed)} http://192.168.30.2:8850/ingest"
         )
         assert '"accepted":1' in out, out
 
     with subtest("metrics render for the pull job"):
-        metrics = peer.succeed(f"curl -sf {auth} http://192.168.65.10:8850/metrics")
+        metrics = peer.succeed(f"curl -sf {auth} http://192.168.30.2:8850/metrics")
         assert "collector_env_polls_ok_total" in metrics
         assert "collector_spool_bytes" in metrics
         assert "collector_host_load1" in metrics

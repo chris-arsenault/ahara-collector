@@ -1,5 +1,5 @@
 # Pull-based self-deployment, the ahara-vpn ADR-0001/ADR-0008 pattern. A
-# timer polls the release branch; on a new revision (or changed host values)
+# timer polls the release branch; on a new revision (or changed machine values)
 # the appliance builds and activates it, then commits it as the boot default
 # only when the health check passes. Activation or health failure rolls back
 # to the previous generation. The health-check binary is also on PATH for
@@ -85,6 +85,45 @@ let
     '';
   };
 
+  migrateConfig = pkgs.writeShellApplication {
+    name = "collector-config-migrate";
+    runtimeInputs = with pkgs; [
+      coreutils
+      jq
+    ];
+    text = ''
+      dir=/var/lib/ahara-collector
+      legacy="$dir/site-values.json"
+      machine="$dir/machine-values.json"
+      mkdir -p "$dir"
+
+      if [ -r "$machine" ]; then
+        exit 0
+      fi
+      [ -r "$legacy" ] || {
+        echo "missing $machine and no legacy $legacy is available"
+        exit 1
+      }
+
+      tmp=$(mktemp "$dir/.machine-values.json.XXXXXX")
+      jq -e '{
+        _comment: "Machine facts migrated from the former combined collector store.",
+        interfaceMac: .network.interfaceMac,
+        adminAuthorizedKeys: .adminAuthorizedKeys
+      } | select(.interfaceMac != null and .adminAuthorizedKeys != null)' \
+        "$legacy" >"$tmp"
+      chmod 0644 "$tmp"
+      mv "$tmp" "$machine"
+
+      if [ ! -e "$legacy.migrated" ]; then
+        mv "$legacy" "$legacy.migrated"
+        echo "extracted collector machine facts; archived the legacy store at $legacy.migrated"
+      else
+        echo "extracted collector machine facts; existing archive retained and $legacy left untouched"
+      fi
+    '';
+  };
+
   updateScript = pkgs.writeShellApplication {
     name = "collector-update";
     runtimeInputs = with pkgs; [
@@ -95,13 +134,15 @@ let
     ];
     text = ''
       state_dir=/var/lib/collector-update
-      values=/var/lib/ahara-collector/site-values.json
+      machine=/var/lib/ahara-collector/machine-values.json
       mkdir -p "$state_dir"
 
-      # The repo carries the design with placeholder values; this machine's
-      # real values are host state, overlaid at build time.
-      [ -r "$values" ] || {
-        echo "no $values on this host; refusing to build placeholder values"
+      ${lib.getExe migrateConfig}
+
+      # The repo carries versioned topology and placeholder machine facts;
+      # this host's real hardware/access identity is overlaid at build time.
+      [ -r "$machine" ] || {
+        echo "no $machine on this host; refusing to build placeholder machine facts"
         exit 1
       }
 
@@ -119,16 +160,16 @@ let
         exit 1
       }
 
-      # The change key is the pair (revision, values hash): a values-only edit
-      # redeploys just like a new release.
-      values_hash=$(sha256sum "$values" | cut -c1-16)
-      desired="$target-$values_hash"
+      # The change key is the pair (revision, machine hash): a hardware/access
+      # identity edit redeploys just like a new release.
+      machine_hash=$(sha256sum "$machine" | cut -c1-16)
+      desired="$target-$machine_hash"
       current=$(cat "$state_dir/current" 2>/dev/null || echo none)
       if [ "$desired" = "$current" ]; then
         exit 0
       fi
 
-      echo "building release $target with host values $values_hash (current: $current)"
+      echo "building release $target with machine values $machine_hash (current: $current)"
       workdir=$(mktemp -d /var/tmp/collector-update.XXXXXX)
       trap 'rm -rf "$workdir"' EXIT
       git clone --quiet --depth 1 "$repo_url" "$workdir/repo" 2>/dev/null || \
@@ -136,7 +177,7 @@ let
       git -C "$workdir/repo" fetch --quiet --depth 1 origin "$target"
       git -C "$workdir/repo" -c advice.detachedHead=false checkout --quiet "$target"
       rm -rf "$workdir/repo/.git"
-      install -m 0644 "$values" "$workdir/repo/hosts/collector/site-values.json"
+      install -m 0644 "$machine" "$workdir/repo/hosts/collector/machine-values.json"
 
       next=$(nix build --no-link --print-out-paths \
         "path:$workdir/repo#nixosConfigurations.${site.host.name}.config.system.build.toplevel")
@@ -174,10 +215,27 @@ in
 {
   environment.systemPackages = [ healthCheck ];
 
+  systemd.services.collector-config-migrate = {
+    description = "Split legacy collector configuration into machine-local state";
+    wantedBy = [ "multi-user.target" ];
+    before = [ "collector-update.service" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = lib.getExe migrateConfig;
+    };
+  };
+
   systemd.services.collector-update = {
     description = "Fetch and activate the latest validated collector release";
-    after = [ "network-online.target" ];
-    wants = [ "network-online.target" ];
+    after = [
+      "network-online.target"
+      "collector-config-migrate.service"
+    ];
+    wants = [
+      "network-online.target"
+      "collector-config-migrate.service"
+    ];
     # The service calls switch-to-configuration itself. Without both guards,
     # that switch stops this unit mid-transaction, killing the activator after
     # old units have stopped but before their replacements have started. These

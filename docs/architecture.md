@@ -1,6 +1,6 @@
 # Architecture
 
-The collector is a single-purpose appliance on the home LAN: it is the
+The collector is a single-purpose appliance on the IoT LAN: it is the
 one host that faces the house's IoT devices, and the only surface it offers
 the rest of the network is one authenticated TCP port, served over TLS at
 `collector.local.ahara.io`.
@@ -8,11 +8,11 @@ the rest of the network is one authenticated TCP port, served over TLS at
 ## Topology
 
 ```text
-Existing router (192.168.65.1) ─── Home LAN (HOME_LAN_CIDR)
-   │                                 ├── WiiM players (SSDP/UPnP)
-   │                                 ├── AtomS3U env sensors (HTTP + UDP discovery)
-   │                                 ├── Kasa KP125M plugs (KLAP)
-   │                                 └── collector (this host, static address)
+Existing router (192.168.30.1) ─── IoT LAN (HOME_LAN_CIDR)
+   │                                ├── WiiM players (SSDP/UPnP)
+   │                                ├── AtomS3U env sensors (HTTP + UDP discovery)
+   │                                ├── Kasa KP125M plugs (KLAP)
+   │                                └── collector (192.168.30.2)
    └── VP2440 gateway ─── Server subnet ─── TrueNAS (Airwave, InfluxDB, pull job)
 ```
 
@@ -25,11 +25,10 @@ TrueNAS address. The gateway-side flow declarations live in ahara-vpn;
 
 ## Single source of truth
 
-`hosts/collector/site.nix` declares every address, port, and module setting,
-deriving machine-specific inputs from `site-values.json`. The repo commits
-placeholder values (what CI and the VM test build); a real machine's values
-are host state at `/var/lib/ahara-collector/site-values.json`, rendered by
-the bootstrap installer and overlaid by the updater on every build.
+`hosts/collector/site.nix` composes versioned `topology.json` with the host's
+`machine-values.json` (ADR-0009). Topology owns addresses, ports, deployment,
+module settings, and spool limits. Machine values own only the interface MAC
+and administrator keys; the updater overlays them on every build.
 `lib/site-assertions.nix` fails evaluation on missing or inconsistent
 values — placeholder and real alike. The Rust service receives its topology
 as one JSON document rendered from the site; it contains no addresses of
@@ -94,17 +93,17 @@ metric.
 ## Firewall
 
 The NixOS nftables firewall defaults to drop and opens exactly the
-declared surface: SSH from the home LAN, the API's TLS port and its plain
+declared surface: SSH from the trusted admin LAN, the API's TLS port and its plain
 port from TrueNAS and the
-home LAN, SSDP 1900 (TrueNAS unicast plus on-link), the relay reply port,
+admin and IoT LANs, SSDP 1900 (TrueNAS unicast plus on-link), the relay reply port,
 and the two fixed discovery-reply ports (broadcast requests cannot ride
 conntrack, so the service binds fixed source ports and the rules stay
 narrow). Every rule carries a `collector:` comment.
 
 ## Deployment
 
-The ahara-vpn pull pattern, unchanged (ADR-0004): CI advances `release`;
-the `collector-update` timer polls it, overlays host values, builds, activates,
+The ahara-vpn pull pattern (ADR-0004): CI advances `release`; the
+`collector-update` timer polls it, overlays machine values, builds, activates,
 and commits the generation only when `collector-health-check` passes; failures
 roll back. First install is one `bootstrap-collector` command on the NixOS
 installer ([runbook](runbook.md)).

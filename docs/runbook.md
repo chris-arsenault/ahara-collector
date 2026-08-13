@@ -3,12 +3,12 @@
 ## First install
 
 Hardware: Beelink Mini S13 (Intel N150, 12 GB, NVMe), UEFI boot, its 2.5G
-port cabled to the home LAN.
+port cabled to the IoT LAN.
 
 Decide before starting:
 
 - The appliance's static address, outside the router's DHCP pool
-  (`192.168.65.10` in the examples).
+  (`192.168.30.2` in the examples).
 - Where the device credentials will come from (a `credentials.json` per
   ADR-0003, or upload later).
 
@@ -79,36 +79,34 @@ nix --extra-experimental-features 'nix-command flakes' \
   run 'github:chris-arsenault/ahara-collector#bootstrap-collector' -- \
   --disk /dev/disk/by-id/<INSTALL_DISK> \
   --key-file /tmp/ops.pub \
-  --address 192.168.65.10 \
-  --home-lan-cidr 192.168.65.0/24 \
-  --router-ip 192.168.65.1 \
   --credentials-file /tmp/credentials.json
 ```
 
-`--dry-run` first shows the rendered values and the disko plan without
-touching the disk. The command discovers the NIC, renders and validates
-this machine's values, erases the disk, seeds
-`/var/lib/ahara-collector/site-values.json` (and the credentials file if
-given), and installs. Nothing is committed to git.
+`--dry-run` first shows the rendered machine values and the disko plan without
+touching the disk. Topology comes from the selected release. The command
+discovers the NIC, renders its interface identity and administrator keys,
+validates them with that topology, erases the disk, seeds
+`/var/lib/ahara-collector/machine-values.json` (and the credentials file if
+given), and installs. Nothing is committed to Git.
 
 ## After first boot
 
-1. SSH in: `ssh ops@192.168.65.10`.
+1. SSH in: `ssh ops@192.168.30.2`.
 2. Read the API token and give it to the house-sensors drain
    ([integration.md](integration.md)):
    `sudo cat /var/lib/ahara-collector/api-token`
 3. If credentials were not seeded at install:
 
    ```bash
-   scp credentials.json ops@192.168.65.10:/tmp/credentials.json
-   ssh ops@192.168.65.10 'sudo install -m 0600 -o root -g root \
+   scp credentials.json ops@192.168.30.2:/tmp/credentials.json
+   ssh ops@192.168.30.2 'sudo install -m 0600 -o root -g root \
      /tmp/credentials.json /var/lib/ahara-collector/credentials.json && \
      rm /tmp/credentials.json && sudo systemctl restart ahara-collector'
    ```
 
 4. Verify: `collector-health-check` prints `health: all checks ok`, and
    `curl -s https://collector.local.ahara.io:8443/health` answers from the
-   home LAN. No `-k`: the certificate is publicly trusted. If nothing answers,
+   IoT LAN. No `-k`: the certificate is publicly trusted. If nothing answers,
    the appliance has no certificate yet — check `ahara-enroll` and
    `ahara-certificate`.
 
@@ -118,7 +116,8 @@ given), and installs. Nothing is committed to git.
 | ---- | --- |
 | Deploy a change | Merge to `main`; CI advances `release`; the appliance activates it within ~2 minutes |
 | Force an update poll | `sudo systemctl start collector-update.service` |
-| Change a host value | Edit `/var/lib/ahara-collector/site-values.json`; the next poll rebuilds (validation rejects typos before activation) |
+| Change topology or a service setting | Edit `hosts/collector/topology.json`; CI deploys the reviewed release |
+| Replace the NIC or administrator key | Edit `/var/lib/ahara-collector/machine-values.json`, then start `collector-update.service` |
 | Rotate device credentials | Re-upload the file, `sudo systemctl restart ahara-collector` |
 | See what the collector is doing | `journalctl -u ahara-collector -f` (structured `event=` lines) |
 | Check the spool | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/metrics \| grep spool` |
@@ -128,12 +127,12 @@ given), and installs. Nothing is committed to git.
 ## Recovery
 
 The appliance is rebuildable from the repo plus three pieces of host
-state: `site-values.json`, `credentials.json`, and the API
+state: `machine-values.json`, `credentials.json`, and the API
 token (which regenerates on first boot — the repo is public, so there is no
 repo credential to restore). Re-run the bootstrap and hand the new API token to
 the house-sensors drain.
 
-A bad release rolls itself back (health gate). A bad host-values edit
+A bad release rolls itself back (health gate). A bad machine-values edit
 fails validation and never activates; fix the file and re-run
 `collector-update`. If the machine is unreachable, the physical console
 auto-logs-in as `ops`.

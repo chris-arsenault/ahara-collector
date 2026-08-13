@@ -14,29 +14,18 @@ device credentials file).
   ssh root@INSTALLER_IP
   nix run github:chris-arsenault/ahara-collector#bootstrap-collector -- \
     --disk /dev/disk/by-id/ID --key-file /tmp/ops.pub \
-    --address 192.168.65.10 --home-lan-cidr 192.168.65.0/24 \
-    --router-ip 192.168.65.1 \
     --credentials-file /tmp/credentials.json
 
-The values become this machine's configuration store — nothing is committed
-to git. The repo's committed values stay placeholders; the pull-deploy
-updater overlays this machine's values on every build.
+Topology and service configuration come from the versioned release. Bootstrap
+writes only hardware and access identity to this machine; the pull-deploy
+updater overlays those machine values on every build.
 
 Required:
   --disk PATH             Stable whole-disk /dev/disk/by-id path to erase.
   --key-file PATH         SSH public key(s), one per line — authorized for
                           the ops user from first boot.
-  --address IP            This appliance's static home-LAN address (pick one
-                          outside the router's DHCP pool).
-  --home-lan-cidr CIDR    The home LAN.
-  --router-ip IP          Router's address on that home LAN.
 
 Optional:
-  --truenas-ip IP         TrueNAS address on the server subnet
-                          (default: 192.168.66.3). Airwave SSDP ingress and
-                          the readings pull are pinned to it.
-  --dns IP                DNS server; may repeat (default: 9.9.9.9 and
-                          149.112.112.112).
   --interface IFACE       Override NIC discovery (default: the ethernet
                           port with link, or the only ethernet port).
   --credentials-file PATH Device credentials JSON to seed
@@ -58,25 +47,15 @@ die() {
 
 disk=
 key_file=
-address=
-home_lan_cidr=
-router_ip=
-truenas_ip=192.168.66.3
 interface=
 credentials_file=
 confirm_disk=
 dry_run=false
-dns_servers=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --disk) disk=$2; shift 2 ;;
     --key-file) key_file=$2; shift 2 ;;
-    --address) address=$2; shift 2 ;;
-    --home-lan-cidr) home_lan_cidr=$2; shift 2 ;;
-    --router-ip) router_ip=$2; shift 2 ;;
-    --truenas-ip) truenas_ip=$2; shift 2 ;;
-    --dns) dns_servers+=("$2"); shift 2 ;;
     --interface) interface=$2; shift 2 ;;
     --credentials-file) credentials_file=$2; shift 2 ;;
     --confirm-disk) confirm_disk=$2; shift 2 ;;
@@ -93,9 +72,6 @@ done
 [[ -e "$disk" ]] || die "$disk does not exist"
 [[ -n "$key_file" ]] || die "--key-file is required (scp your public key to the installer first)"
 [[ -r "$key_file" ]] || die "cannot read $key_file"
-[[ -n "$address" ]] || die "--address is required"
-[[ -n "$home_lan_cidr" ]] || die "--home-lan-cidr is required"
-[[ -n "$router_ip" ]] || die "--router-ip is required"
 if [[ -n "$credentials_file" ]]; then
   [[ -r "$credentials_file" ]] || die "cannot read $credentials_file"
 fi
@@ -103,8 +79,6 @@ fi
 [[ -d /sys/firmware/efi/efivars ]] || die "the installer must be booted through UEFI (systemd-boot)"
 grep -q '^ID=nixos' /etc/os-release 2>/dev/null || die "run this from the NixOS installer"
 ! findmnt -S "$disk" >/dev/null 2>&1 || die "$disk has mounted filesystems; unmount first"
-
-[[ ${#dns_servers[@]} -gt 0 ]] || dns_servers=(9.9.9.9 149.112.112.112)
 
 flake="${COLLECTOR_BOOTSTRAP_FLAKE:?COLLECTOR_BOOTSTRAP_FLAKE is not set}"
 export NIX_CONFIG="${NIX_CONFIG:-}
@@ -150,28 +124,23 @@ fi
 interface_mac=$(cat "/sys/class/net/$interface/address")
 echo "using interface $interface ($interface_mac)"
 
-# ---- render and validate this machine's values ------------------------------
+# ---- render and validate this machine's identity ----------------------------
 
 workdir=$(mktemp -d /tmp/bootstrap-collector.XXXXXX)
 trap 'rm -rf "$workdir"' EXIT
 
 INTERFACE_MAC="$interface_mac" \
-HOME_LAN_CIDR="$home_lan_cidr" \
-ADDRESS="$address" \
-ROUTER_IP="$router_ip" \
-TRUENAS_IP="$truenas_ip" \
-DNS_SERVERS="$(printf '%s\n' "${dns_servers[@]}")" \
 ADMIN_KEYS="$admin_keys" \
-  bash "${COLLECTOR_RENDER:?COLLECTOR_RENDER is not set}" >"$workdir/site-values.json"
+  bash "${COLLECTOR_RENDER_MACHINE:?COLLECTOR_RENDER_MACHINE is not set}" >"$workdir/machine-values.json"
 
-echo "rendered site values:"
-sed 's/^/  /' "$workdir/site-values.json"
+echo "rendered machine values:"
+sed 's/^/  /' "$workdir/machine-values.json"
 
 cp -rT "$flake" "$workdir/repo"
 chmod -R u+w "$workdir/repo"
-install -m 0644 "$workdir/site-values.json" "$workdir/repo/hosts/collector/site-values.json"
+install -m 0644 "$workdir/machine-values.json" "$workdir/repo/hosts/collector/machine-values.json"
 
-echo "validating rendered values..."
+echo "validating versioned topology with rendered machine values..."
 nix build --dry-run "path:$workdir/repo#nixosConfigurations.collector.config.system.build.toplevel" \
   || die "rendered values failed validation; nothing was touched"
 
@@ -202,12 +171,15 @@ findmnt /mnt/boot >/dev/null || die "disko did not mount the ESP"
 
 # ---- seed host state and install --------------------------------------------
 
-install -D -m 0644 "$workdir/site-values.json" /mnt/var/lib/ahara-collector/site-values.json
+install -D -m 0644 "$workdir/machine-values.json" /mnt/var/lib/ahara-collector/machine-values.json
 if [ -n "$credentials_file" ]; then
   install -D -m 0600 "$credentials_file" /mnt/var/lib/ahara-collector/credentials.json
 fi
 
 nixos-install --no-root-passwd --flake "path:$workdir/repo#collector"
+
+address=$(nix eval --raw --impure --expr \
+  "(builtins.fromJSON (builtins.readFile \"$workdir/repo/hosts/collector/topology.json\")).network.address")
 
 cat <<EOF
 
@@ -225,4 +197,4 @@ if [ -z "$credentials_file" ]; then
          && rm /tmp/credentials.json && sudo systemctl restart ahara-collector'
 EOF
 fi
-echo "Nothing to commit: this machine's values live only on this machine."
+echo "Machine identity stays on this host. Topology changes move through Git."
