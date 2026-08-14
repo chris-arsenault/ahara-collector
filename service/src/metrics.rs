@@ -7,12 +7,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Default)]
 pub struct Metrics {
-    pub ssdp_airwave_msearch: AtomicU64,
-    pub ssdp_airwave_notify: AtomicU64,
-    pub ssdp_renderer_replies: AtomicU64,
-    pub ssdp_home_msearch: AtomicU64,
-    pub ssdp_home_replies: AtomicU64,
-    pub ssdp_dropped: AtomicU64,
+    pub wiim_media_searches: AtomicU64,
+    pub wiim_media_replies: AtomicU64,
+    pub wiim_media_dropped: AtomicU64,
     pub wiim_discovery_runs: AtomicU64,
     pub wiim_discovery_failed: AtomicU64,
     pub wiim_descriptions_failed: AtomicU64,
@@ -58,28 +55,16 @@ impl Metrics {
         };
 
         emit(
-            "collector_ssdp_airwave_msearch_total",
-            self.ssdp_airwave_msearch.load(Ordering::Relaxed),
+            "collector_wiim_media_searches_total",
+            self.wiim_media_searches.load(Ordering::Relaxed),
         );
         emit(
-            "collector_ssdp_airwave_notify_total",
-            self.ssdp_airwave_notify.load(Ordering::Relaxed),
+            "collector_wiim_media_replies_total",
+            self.wiim_media_replies.load(Ordering::Relaxed),
         );
         emit(
-            "collector_ssdp_renderer_replies_total",
-            self.ssdp_renderer_replies.load(Ordering::Relaxed),
-        );
-        emit(
-            "collector_ssdp_home_msearch_total",
-            self.ssdp_home_msearch.load(Ordering::Relaxed),
-        );
-        emit(
-            "collector_ssdp_home_replies_total",
-            self.ssdp_home_replies.load(Ordering::Relaxed),
-        );
-        emit(
-            "collector_ssdp_dropped_total",
-            self.ssdp_dropped.load(Ordering::Relaxed),
+            "collector_wiim_media_dropped_total",
+            self.wiim_media_dropped.load(Ordering::Relaxed),
         );
         emit(
             "collector_wiim_discovery_runs_total",

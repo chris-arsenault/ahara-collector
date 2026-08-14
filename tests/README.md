@@ -9,8 +9,9 @@ Two layers, mirroring ahara-vpn's rationale:
   host modules; a peer node plays the router, TrueNAS/Airwave, a WiiM
   renderer, and an environment sensor. Asserts what only a running system
   can prove: the MAC rename, firewall pins, the credentials-restart
-  contract, end-to-end SSDP relay, discovery → poll → spool → pull → ack,
-  and the health gate.
+  contract, WiiM inventory and transport, local MediaServer discovery,
+  discovery → poll → spool → pull → ack, and the health gate.
 
-Rust behavior (SSDP classification, spool bounds, KLAP round-trips, line
-shapes) is unit-tested in the crate itself: `cd service && cargo test`.
+Rust behavior (local SSDP response filtering, transport destination pins,
+spool bounds, KLAP round-trips, line shapes) is unit-tested in the crate
+itself: `cd service && cargo test`.

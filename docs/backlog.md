@@ -24,5 +24,5 @@ future-state behavior.
 ## Observability
 
 - Collector metrics are scraped into the platform observability stack and
-  a dashboard ships from this repo (spool depth, poll failure rates, SSDP
-  relay counters).
+  a dashboard ships from this repo (spool depth, poll failure rates, WiiM
+  inventory and MediaServer discovery counters).

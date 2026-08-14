@@ -36,16 +36,6 @@ impl Ipv4Cidr {
 }
 
 #[derive(Debug, Clone)]
-pub struct AirwaveSsdpConfig {
-    pub enable: bool,
-    pub airwave_ip: Ipv4Addr,
-    pub ssdp_port: u16,
-    pub response_port: u16,
-    pub relay_port: u16,
-    pub response_window_seconds: u64,
-}
-
-#[derive(Debug, Clone)]
 pub struct WiimConfig {
     pub enable: bool,
     pub ssdp_port: u16,
@@ -53,6 +43,7 @@ pub struct WiimConfig {
     pub response_window_seconds: u64,
     pub discovery_interval_seconds: u64,
     pub state_file: String,
+    pub media_server_ip: Ipv4Addr,
     pub media_server_port: u16,
 }
 
@@ -80,7 +71,6 @@ pub struct Config {
     pub home_cidr: Ipv4Cidr,
     pub home_broadcast: Ipv4Addr,
     pub api_port: u16,
-    pub airwave_ssdp: AirwaveSsdpConfig,
     pub wiim: WiimConfig,
     pub env_sensors: PollerConfig,
     pub kasa: PollerConfig,
@@ -159,21 +149,11 @@ fn poller(doc: &Json, section: &str) -> Result<PollerConfig, String> {
 impl Config {
     pub fn from_json(text: &str) -> Result<Config, String> {
         let doc = json::parse(text)?;
-        let airwave = AirwaveSsdpConfig {
-            enable: req_bool(&doc, "airwaveSsdp", "enable")?,
-            airwave_ip: req_ip(&doc, "airwaveSsdp", "airwaveIp")?,
-            ssdp_port: req_port(&doc, "airwaveSsdp", "ssdpPort")?,
-            response_port: req_port(&doc, "airwaveSsdp", "responsePort")?,
-            relay_port: req_port(&doc, "airwaveSsdp", "relayPort")?,
-            response_window_seconds: req_u64(&doc, "airwaveSsdp", "responseWindowSeconds")?
-                .clamp(1, 10),
-        };
         Ok(Config {
             bind_address: req_ip(&doc, "", "bindAddress")?,
             home_cidr: Ipv4Cidr::parse(&req_str(&doc, "", "homeCidr")?)?,
             home_broadcast: req_ip(&doc, "", "homeBroadcast")?,
             api_port: req_port(&doc, "", "apiPort")?,
-            airwave_ssdp: airwave,
             wiim: WiimConfig {
                 enable: req_bool(&doc, "wiim", "enable")?,
                 ssdp_port: req_port(&doc, "wiim", "ssdpPort")?,
@@ -187,6 +167,7 @@ impl Config {
                 )?
                 .max(5),
                 state_file: req_str(&doc, "wiim", "stateFile")?,
+                media_server_ip: req_ip(&doc, "wiim", "mediaServerIp")?,
                 media_server_port: req_port(&doc, "wiim", "mediaServerPort")?,
             },
             env_sensors: poller(&doc, "envSensors")?,
@@ -259,11 +240,10 @@ pub fn test_config() -> Config {
         "homeCidr": "192.168.65.0/24",
         "homeBroadcast": "192.168.65.255",
         "apiPort": 8850,
-        "airwaveSsdp": {"enable": true, "airwaveIp": "192.168.66.3", "ssdpPort": 1900,
-                        "responsePort": 1901, "relayPort": 1901, "responseWindowSeconds": 4},
         "wiim": {"enable": true, "ssdpPort": 1900, "discoveryBindPort": 1902,
                  "responseWindowSeconds": 4, "discoveryIntervalSeconds": 30,
-                 "stateFile": "/tmp/wiim-devices.json", "mediaServerPort": 7882},
+                 "stateFile": "/tmp/wiim-devices.json", "mediaServerIp": "192.168.66.3",
+                 "mediaServerPort": 7882},
         "envSensors": {"enable": true, "discoveryPort": 12343, "discoveryBindPort": 12344,
                        "devicePort": 80, "pollIntervalSeconds": 1, "discoveryIntervalHours": 4},
         "kasa": {"enable": true, "discoveryPort": 20002, "discoveryBindPort": 20003,
@@ -283,8 +263,8 @@ mod tests {
     fn parses_a_complete_config() {
         let config = test_config();
         assert_eq!(config.api_port, 8850);
-        assert_eq!(config.airwave_ssdp.airwave_ip, "192.168.66.3".parse::<Ipv4Addr>().unwrap());
         assert_eq!(config.wiim.discovery_bind_port, 1902);
+        assert_eq!(config.wiim.media_server_ip, "192.168.66.3".parse::<Ipv4Addr>().unwrap());
         assert_eq!(config.wiim.media_server_port, 7882);
         assert_eq!(config.kasa.static_devices.len(), 1);
         assert!(config.home_cidr.contains("192.168.65.77".parse().unwrap()));
@@ -293,8 +273,16 @@ mod tests {
 
     #[test]
     fn names_the_missing_key() {
-        let err = Config::from_json(r#"{"bindAddress": "192.168.65.3"}"#).unwrap_err();
-        assert!(err.contains("airwaveSsdp"), "{err}");
+        let err = Config::from_json(
+            r#"{
+                "bindAddress": "192.168.65.3",
+                "homeCidr": "192.168.65.0/24",
+                "homeBroadcast": "192.168.65.255",
+                "apiPort": 8850
+            }"#,
+        )
+        .unwrap_err();
+        assert!(err.contains("wiim"), "{err}");
     }
 
     #[test]

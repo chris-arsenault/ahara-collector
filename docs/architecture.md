@@ -42,20 +42,13 @@ its own.
 One Rust binary (`service/`), built from a locked dependency closure and run
 as a hardened `DynamicUser` systemd unit, has four concerns:
 
-**Airwave reachability** (ADR-0011). The migration relay still accepts
-Airwave M-SEARCH (from its fixed
-response port 1901) and MediaServer NOTIFYs to the collector's IoT-LAN
-address, port 1900. The relay validates each message and re-originates it
-on-link — multicast 239.255.255.250 plus the directed broadcast, because
-IoT Wi-Fi has been observed suppressing multicast delivery. Renderer
-replies within the search window (MX-derived, bounded) are validated
-(MediaRenderer ST, LOCATION inside the IoT subnet) and returned to
-Airwave's port 1901. WiiM-originated M-SEARCH for MediaServer targets is
-relayed to Airwave and its unicast answers are returned to the requesting
-device. Once Airwave uses the native inventory and transport, those routed
-SSDP paths retire. Airwave registers its existing MediaServer as a renewable
-lease instead; the collector answers WiiM searches and emits all five UPnP
-advertisements locally while the lease is active.
+**Airwave MediaServer discovery** (ADR-0011). Airwave registers its existing
+UPnP MediaServer through the authenticated collector API as a renewable
+lease. While that lease is active, the collector answers WiiM-originated
+MediaServer searches on the IoT LAN and emits all five UPnP advertisements
+locally, using multicast plus directed broadcast because IoT Wi-Fi has
+suppressed multicast delivery before. The listener accepts only IoT-source
+MediaServer searches; it does not forward SSDP between VLANs.
 
 **WiiM inventory.** A separate on-link discovery socket originates
 MediaRenderer searches from the IoT address, validates every response and
@@ -118,9 +111,9 @@ metric.
 
 The NixOS nftables firewall defaults to drop and opens exactly the declared
 surface: SSH from the trusted home LAN; the API's TLS and plain ports from
-TrueNAS, the home LAN, and the IoT LAN; SSDP 1900 from TrueNAS and on-link
-devices; the relay reply port; the WiiM inventory reply port; and the two
-fixed sensor discovery-reply ports (broadcast requests cannot ride
+TrueNAS, the home LAN, and the IoT LAN; SSDP 1900 from on-link IoT devices;
+the WiiM inventory reply port; and the two fixed sensor discovery-reply ports
+(broadcast requests cannot ride
 conntrack, so the service binds fixed source ports and the rules stay
 narrow). Every rule carries a `collector:` comment.
 

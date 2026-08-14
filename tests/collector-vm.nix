@@ -6,8 +6,8 @@
 # gateway), a WiiM renderer, and an AtomS3U environment sensor.
 #
 # What only a running system can prove is asserted here: MAC→lan0 rename,
-# firewall pins, the credentials-file restart contract, end-to-end SSDP
-# relay, collector-owned WiiM inventory and transport, local MediaServer
+# firewall pins, the credentials-file restart contract, collector-owned WiiM
+# inventory and transport, local MediaServer
 # discovery, sensor discovery → poll → spool → pull → ack, and the deploy
 # health check. Pure policy shape is asserted at eval time in
 # tests/site-validation.nix. KVM-free so the test runs under TCG on hosted
@@ -188,34 +188,6 @@ let
     HTTPServer(("0.0.0.0", 49152), Handler).serve_forever()
   '';
 
-  airwaveProbe = pkgs.writeScriptBin "airwave-probe" ''
-    #!${pkgs.python3}/bin/python3
-    # Plays Airwave's discovery: M-SEARCH from the fixed response port on
-    # the TrueNAS address toward the collector, then waits for the relayed
-    # renderer reply.
-    import socket
-    import sys
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("192.168.66.3", 1901))
-    s.settimeout(15)
-    msearch = (
-        b"M-SEARCH * HTTP/1.1\r\n"
-        b"HOST: 239.255.255.250:1900\r\n"
-        b'MAN: "ssdp:discover"\r\n'
-        b"MX: 3\r\n"
-        b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
-        b"\r\n"
-    )
-    s.sendto(msearch, ("192.168.30.2", 1900))
-    data, addr = s.recvfrom(4096)
-    assert b"200 OK" in data, data
-    assert b"uuid:vm-wiim" in data, data
-    print("renderer reply relayed from", addr)
-    sys.exit(0)
-  '';
-
   wiimMediaProbe = pkgs.writeScriptBin "wiim-media-probe" ''
     #!${pkgs.python3}/bin/python3
     # Plays a WiiM searching the IoT LAN for Airwave's registered UPnP
@@ -339,7 +311,6 @@ pkgs.testers.runNixOSTest {
         pkgs.jq
         mockEnvSensor
         mockRenderer
-        airwaveProbe
         wiimMediaProbe
       ];
       systemd.services.mock-env-sensor = {
@@ -370,7 +341,8 @@ pkgs.testers.runNixOSTest {
     with subtest("firewall: default drop with the declared surface only"):
         collector.succeed("nft list ruleset | grep -qF 'collector:api'")
         collector.succeed("nft list ruleset | grep -qF 'collector:api-tls'")
-        collector.succeed("nft list ruleset | grep -qF 'collector:ssdp'")
+        collector.succeed("nft list ruleset | grep -qF 'collector:wiim-media-ssdp'")
+        collector.fail("nft list ruleset | grep -qF 'collector:ssdp-replies'")
         collector.succeed("nft list ruleset | grep -qF 'collector:env-discovery-replies'")
 
     with subtest("first-boot state: API token generated"):
@@ -394,7 +366,7 @@ pkgs.testers.runNixOSTest {
     with subtest("collector service runs and binds its sockets"):
         collector.wait_for_unit("ahara-collector.service")
         collector.wait_until_succeeds("ss -uln | grep -qF '0.0.0.0:1900'")
-        collector.wait_until_succeeds("ss -uln | grep -qF '192.168.30.2:1901'")
+        collector.fail("ss -uln | grep -qF '192.168.30.2:1901'")
         collector.wait_until_succeeds("ss -tln | grep -qF '192.168.30.2:8850'")
 
     with subtest("health endpoint is open; data endpoints are token-gated"):
@@ -497,10 +469,6 @@ pkgs.testers.runNixOSTest {
             f"curl -sf -X POST {auth} -d {shlex.quote(ack)} http://192.168.30.2:8850/readings/ack"
         )
         assert '"acked":true' in out, out
-
-    with subtest("SSDP relay end to end: airwave search -> renderer reply"):
-        peer.wait_for_unit("mock-renderer.service")
-        peer.succeed("airwave-probe")
 
     with subtest("ingest accepts device pushes with Basic auth"):
         pushed = json.dumps({"module": "push", "values": {"v": 42}})

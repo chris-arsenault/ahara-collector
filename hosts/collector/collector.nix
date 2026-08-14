@@ -1,4 +1,4 @@
-# The collector service: SSDP relay for Airwave, device pollers, bounded
+# The collector service: WiiM discovery and transport, device pollers, bounded
 # spool, and the single-port pull API. All topology arrives as one JSON
 # config document rendered from site.nix; secrets never do — the device
 # credentials file and the scoped API tokens are host state passed through systemd
@@ -20,7 +20,6 @@ let
       homeCidr = n.homeLanCidr;
       homeBroadcast = n.homeBroadcast;
       apiPort = site.api.port;
-      airwaveSsdp = c.airwaveSsdp;
       wiim = c.wiim;
       envSensors = c.envSensors;
       kasa = c.kasa;
@@ -78,7 +77,7 @@ in
   };
 
   systemd.services.ahara-collector = {
-    description = "Ahara IoT collector (SSDP relay, device pollers, pull API)";
+    description = "Ahara IoT collector (WiiM transport, device pollers, pull API)";
     wantedBy = [ "multi-user.target" ];
     requires = [
       "ahara-collector-token.service"

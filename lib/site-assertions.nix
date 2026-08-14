@@ -263,60 +263,6 @@ let
     {
       path = [
         "collector"
-        "airwaveSsdp"
-        "enable"
-      ];
-      check = isBool;
-      describe = "boolean";
-    }
-    {
-      path = [
-        "collector"
-        "airwaveSsdp"
-        "airwaveIp"
-      ];
-      check = isIp;
-      describe = "IPv4 address";
-    }
-    {
-      path = [
-        "collector"
-        "airwaveSsdp"
-        "ssdpPort"
-      ];
-      check = isPort;
-      describe = "port 1-65535";
-    }
-    {
-      path = [
-        "collector"
-        "airwaveSsdp"
-        "responsePort"
-      ];
-      check = isPort;
-      describe = "port 1-65535";
-    }
-    {
-      path = [
-        "collector"
-        "airwaveSsdp"
-        "relayPort"
-      ];
-      check = isPort;
-      describe = "port 1-65535";
-    }
-    {
-      path = [
-        "collector"
-        "airwaveSsdp"
-        "responseWindowSeconds"
-      ];
-      check = i: isInt i && i >= 1 && i <= 10;
-      describe = "response window 1-10 seconds";
-    }
-    {
-      path = [
-        "collector"
         "wiim"
         "enable"
       ];
@@ -367,6 +313,15 @@ let
       ];
       check = s: isString s && match "/.*" s != null;
       describe = "absolute path";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "mediaServerIp"
+      ];
+      check = isIp;
+      describe = "IPv4 address";
     }
     {
       path = [
@@ -580,10 +535,10 @@ let
         [ "site.network.homeBroadcast must be the broadcast of network.homeLanCidr" ]
     )
     ++ (
-      if c.airwaveSsdp.airwaveIp == n.truenasIp then
+      if c.wiim.mediaServerIp == n.truenasIp then
         [ ]
       else
-        [ "site.collector.airwaveSsdp.airwaveIp must equal network.truenasIp" ]
+        [ "site.collector.wiim.mediaServerIp must equal network.truenasIp" ]
     )
     ++ (
       if c.spool.segmentBytes * 2 <= c.spool.maxBytes then
@@ -592,16 +547,16 @@ let
         [ "site.collector.spool.maxBytes must be at least twice spool.segmentBytes" ]
     )
     ++ (
-      if site.api.port != c.airwaveSsdp.relayPort then
+      if site.api.port != c.wiim.ssdpPort then
         [ ]
       else
-        [ "site.api.port must differ from collector.airwaveSsdp.relayPort" ]
+        [ "site.api.port must differ from collector.wiim.ssdpPort" ]
     )
     ++ (
-      if c.wiim.discoveryBindPort != c.airwaveSsdp.relayPort then
+      if c.wiim.discoveryBindPort != c.wiim.ssdpPort then
         [ ]
       else
-        [ "site.collector.wiim.discoveryBindPort must differ from collector.airwaveSsdp.relayPort" ]
+        [ "site.collector.wiim.discoveryBindPort must differ from collector.wiim.ssdpPort" ]
     )
     ++ (
       if site.api.tlsPort != site.api.port then

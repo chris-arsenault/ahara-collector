@@ -6,41 +6,10 @@ site addresses; the owning repositories remain authoritative.
 
 ## ahara-vpn: gateway flows
 
-Four active flows live in `hosts/gateway/site.nix` `allowedFlows`. All four
+Three active flows live in `hosts/gateway/site.nix` `allowedFlows`. All three
 are ordinary forward flows and pass through Suricata inspection:
 
 ```nix
-{
-  # Airwave's M-SEARCH (source port 1901) and MediaServer NOTIFYs to the
-  # collector appliance, which re-originates them on-link (ahara-collector
-  # ADR-0001).
-  name = "airwave-to-collector-ssdp";
-  description = "Airwave SSDP discovery and announcements to the collector appliance";
-  sourceZone = "servers";
-  source = truenasIp;
-  destZone = "iot";
-  destination = collectorIp; # 192.168.30.2
-  inspect = true;
-  protocol = "udp";
-  ports = [ 1900 ];
-}
-{
-  # Renderer replies to Airwave's fixed response port 1901, and relayed
-  # WiiM MediaServer searches to Airwave's SSDP port 1900. Both originate
-  # from the collector's fixed relay port.
-  name = "collector-to-airwave-ssdp";
-  description = "Collector SSDP replies and relayed searches to Airwave";
-  sourceZone = "iot";
-  source = collectorIp;
-  destZone = "servers";
-  destination = truenasIp;
-  inspect = true;
-  protocol = "udp";
-  ports = [
-    1900
-    1901
-  ];
-}
 {
   # The readings pull (ahara-collector ADR-0002): the house-sensors
   # collectors drain the appliance's spool over its single API port.
@@ -55,9 +24,9 @@ are ordinary forward flows and pass through Suricata inspection:
   ports = [ 8850 ];
 }
 {
-  # The same pull over TLS (ADR-0008), which the puller cuts over to.
-  name = "truenas-to-collector-pull-tls";
-  description = "TrueNAS readings pull from the collector API over TLS";
+  # Airwave uses this now; the readings puller cuts over to the same endpoint.
+  name = "truenas-to-collector-api-tls";
+  description = "TrueNAS consumers reach the collector API over TLS";
   sourceZone = "servers";
   source = truenasIp;
   destZone = "iot";
@@ -66,13 +35,26 @@ are ordinary forward flows and pass through Suricata inspection:
   protocol = "tcp";
   ports = [ 8443 ];
 }
+{
+  # Players fetch Airwave's UPnP description and media streams directly.
+  name = "iot-to-airwave-media";
+  description = "WiiM devices fetch Airwave media descriptions and streams";
+  sourceZone = "iot";
+  source = iotLanCidr;
+  destZone = "servers";
+  destination = truenasIp;
+  inspect = true;
+  protocol = "tcp";
+  ports = [ 7882 ];
+}
 ```
 
 These flows and the `collector.local.ahara.io` record are declared in the
 gateway's `site.nix`; `collectorIp` is one of its site values. Once the
 house-sensors collectors read from the collector API instead of polling
 devices, the old TrueNAS-to-device discovery and polling flows are absent.
-The plain-port flow retires with the puller's TLS cutover.
+The plain-port flow retires with the puller's TLS cutover. There are no
+cross-VLAN SSDP or TrueNAS-to-WiiM control flows.
 
 ## airwave: collector API
 
@@ -107,8 +89,7 @@ Airwave renews `PUT /wiim/media-server` before the lease expires:
 ```
 
 The collector then emits Airwave's five existing MediaServer advertisements
-on the IoT LAN and answers WiiM searches locally. The temporary SSDP flows
-shown above remain only until the Airwave code cutover is deployed.
+on the IoT LAN and answers WiiM searches locally.
 
 ## house-sensors: drain the collector instead of polling devices
 
@@ -202,11 +183,11 @@ IoT-LAN devices directly, so switching their input to the appliance's API
 is what restores data flow into the existing buckets, downsampler, and
 dashboards.
 
-1. Deploy the collector; add the three gateway flows; verify
-   `collector-health-check` and the VM-tested paths against real devices.
+1. Deploy the collector and verify `collector-health-check` and the VM-tested
+   paths against real devices.
 2. Store the Airwave-specific token, switch Airwave to the collector API,
-   confirm inventory, control, grouping, and media browsing, then remove the
-   cross-VLAN SSDP and direct renderer-control flows from ahara-vpn.
+   confirm inventory, control, grouping, and media browsing, then deploy the
+   gateway policy without cross-VLAN SSDP or direct renderer-control flows.
 3. Switch the house-sensors collectors to the drain input with the
    collector token; confirm `environment` and `voltage_monitoring` land in
    their buckets and the dashboards fill in again.

@@ -44,5 +44,5 @@ five SSDP advertisements Airwave previously emitted.
   model.
 - Compromise of either consumer token does not grant the other consumer's API
   surface.
-- The temporary cross-VLAN SSDP relay remains only through migration and can
-  be removed after Airwave uses the registration API.
+- Cross-VLAN SSDP and direct Airwave-to-WiiM control flows are absent; only
+  WiiM-to-Airwave media delivery remains direct.

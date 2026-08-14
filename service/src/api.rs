@@ -43,13 +43,12 @@ pub struct Api {
     pub metrics: Arc<Metrics>,
     pub registry: Arc<Registry>,
     pub wiim_transport: Arc<WiimTransport>,
-    pub airwave_ip: Ipv4Addr,
+    pub media_server_ip: Ipv4Addr,
     pub media_server_port: u16,
     pub modules: ModuleFlags,
 }
 
 pub struct ModuleFlags {
-    pub airwave_ssdp: bool,
     pub wiim: bool,
     pub env_sensors: bool,
     pub kasa: bool,
@@ -151,7 +150,6 @@ impl Api {
     fn health(&self) -> Response {
         let stats = self.spools.stats();
         let mut modules = BTreeMap::new();
-        modules.insert("airwaveSsdp".to_string(), Json::Bool(self.modules.airwave_ssdp));
         modules.insert("wiim".to_string(), Json::Bool(self.modules.wiim));
         modules.insert("envSensors".to_string(), Json::Bool(self.modules.env_sensors));
         modules.insert("kasa".to_string(), Json::Bool(self.modules.kasa));
@@ -310,7 +308,7 @@ impl Api {
         };
         let location_ip = url.host_str().and_then(|host| host.parse().ok());
         if url.scheme() != "http"
-            || location_ip != Some(self.airwave_ip)
+            || location_ip != Some(self.media_server_ip)
             || url.port_or_known_default() != Some(self.media_server_port)
             || url.path() != "/device.xml"
             || url.query().is_some()
@@ -524,10 +522,9 @@ mod tests {
             metrics: Arc::new(Metrics::default()),
             registry,
             wiim_transport,
-            airwave_ip: "192.168.66.3".parse().unwrap(),
+            media_server_ip: "192.168.66.3".parse().unwrap(),
             media_server_port: 7882,
             modules: ModuleFlags {
-                airwave_ssdp: true,
                 wiim: true,
                 env_sensors: true,
                 kasa: false,

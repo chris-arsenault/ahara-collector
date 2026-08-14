@@ -60,7 +60,7 @@ in
     interfaceMac = machine.interfaceMac;
     inherit homeBroadcast prefixLength;
     # The appliance has exactly one network identity: a single interface on
-    # the IoT LAN. Server-subnet traffic (Airwave SSDP in, readings pull in)
+    # the IoT LAN. Server-subnet traffic (Airwave API calls, readings pull in)
     # arrives routed through the VP2440 with its original source address, so
     # local firewall rules can pin flows to the TrueNAS address.
     interfaceName = "lan0";
@@ -93,15 +93,11 @@ in
   # (no secrets in it — credentials are a separate host-state file loaded via
   # systemd credentials).
   collector = {
-    airwaveSsdp = v.airwaveSsdp // {
-      airwaveIp = n.truenasIp;
-      ssdpPort = 1900;
-      responsePort = 1901;
-    };
     wiim = v.wiim // {
       ssdpPort = 1900;
       discoveryBindPort = 1902;
       stateFile = "/var/lib/ahara-collector-runtime/wiim-devices.json";
+      mediaServerIp = n.truenasIp;
     };
     # Discovery sockets bind fixed local ports so the reply openings in the
     # input firewall stay narrow (broadcast requests cannot ride conntrack).

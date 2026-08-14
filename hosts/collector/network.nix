@@ -44,7 +44,7 @@ in
       IPv6AcceptRA = false;
       LinkLocalAddressing = "no";
     };
-    # The SSDP relay joins 239.255.255.250 itself; IGMP needs multicast on.
+    # WiiM discovery joins 239.255.255.250 itself; IGMP needs multicast on.
     linkConfig.Multicast = true;
   };
 
@@ -69,13 +69,8 @@ in
       # the TLS endpoint (docs/backlog.md).
       ip saddr { ${n.truenasIp}, ${n.adminLanCidr}, ${n.homeLanCidr} } tcp dport ${toString site.api.port} accept comment "collector:api"
 
-      # Airwave SSDP ingress (unicast from TrueNAS) and on-link SSDP
-      # multicast/broadcast from IoT devices.
-      ip saddr { ${n.truenasIp}, ${n.homeLanCidr} } udp dport ${toString c.airwaveSsdp.ssdpPort} accept comment "collector:ssdp"
-
-      # Renderer answers to re-originated M-SEARCH arrive unicast on the
-      # relay port.
-      ip saddr ${n.homeLanCidr} udp dport ${toString c.airwaveSsdp.relayPort} accept comment "collector:ssdp-replies"
+      # WiiM MediaServer searches arrive only from the on-link IoT segment.
+      ip saddr ${n.homeLanCidr} udp dport ${toString c.wiim.ssdpPort} accept comment "collector:wiim-media-ssdp"
 
       # WiiM renderer replies return to the fixed port used by the local
       # inventory module's M-SEARCH socket.

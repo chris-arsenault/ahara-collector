@@ -19,11 +19,6 @@
     "port": 8850,
     "tlsPort": 8443
   },
-  "airwaveSsdp": {
-    "enable": true,
-    "relayPort": 1901,
-    "responseWindowSeconds": 4
-  },
   "wiim": {
     "enable": true,
     "discoveryIntervalSeconds": 30,

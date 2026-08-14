@@ -111,17 +111,17 @@ fn main() {
         }),
     );
 
-    if config.airwave_ssdp.enable {
-        let relay = ssdp::Relay {
-            cfg: config.airwave_ssdp.clone(),
+    if config.wiim.enable {
+        let responder = ssdp::Responder {
+            ssdp_port: config.wiim.ssdp_port,
             home_cidr: config.home_cidr,
             home_broadcast: config.home_broadcast,
             bind_address: config.bind_address,
             metrics: Arc::clone(&metrics),
             registry: Arc::clone(&registry),
         };
-        match ssdp::run(relay, Arc::clone(&stop)) {
-            Ok(_handles) => eprintln!("event=module_started module=airwave_ssdp"),
+        match ssdp::run(responder, Arc::clone(&stop)) {
+            Ok(_handles) => eprintln!("event=module_started module=wiim_media_discovery"),
             Err(e) => {
                 eprintln!("event=startup_failed reason=ssdp_bind error={e}");
                 std::process::exit(1);
@@ -177,10 +177,9 @@ fn main() {
         metrics,
         registry,
         wiim_transport,
-        airwave_ip: config.airwave_ssdp.airwave_ip,
+        media_server_ip: config.wiim.media_server_ip,
         media_server_port: config.wiim.media_server_port,
         modules: ModuleFlags {
-            airwave_ssdp: config.airwave_ssdp.enable,
             wiim: config.wiim.enable,
             env_sensors: config.env_sensors.enable && credentials.env_sensors.is_some(),
             kasa: config.kasa.enable && credentials.kasa.is_some(),

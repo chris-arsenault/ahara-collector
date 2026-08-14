@@ -36,7 +36,7 @@ Read this before editing. [README.md](README.md) has the repository map.
 | ---- | ----- | ----- |
 | Site values contract | `lib/site-assertions.nix` | Validates the derived site at eval time |
 | Host modules | `hosts/collector/*.nix` | One concern per file; composition in `configuration.nix` |
-| SSDP migration + MediaServer advertisement | `service/src/ssdp.rs` | Pure packet processors + thin socket loops |
+| WiiM MediaServer advertisement | `service/src/ssdp.rs` | Local IoT SSDP responder backed by a renewable Airwave lease |
 | WiiM inventory and transport | `service/src/wiim.rs` | On-link discovery, endpoint validation, scoped HTTP/HTTPS |
 | Sensor pollers | `service/src/sensors.rs`, `service/src/kasa.rs` | Kasa KLAP is experimental until validated on hardware |
 | Spool | `service/src/spool.rs` | Bounded, oldest-dropped, ack-deletes |

@@ -77,29 +77,29 @@ let
       };
     }
     {
-      name = "api-port-collides-with-relay";
+      name = "api-port-collides-with-wiim-ssdp";
       s = site // {
         api = {
-          port = 1901;
+          port = site.collector.wiim.ssdpPort;
         };
       };
     }
     {
-      name = "airwave-ip-diverges-from-truenas";
+      name = "media-server-ip-diverges-from-truenas";
       s = site // {
         collector = site.collector // {
-          airwaveSsdp = site.collector.airwaveSsdp // {
-            airwaveIp = "192.168.66.9";
+          wiim = site.collector.wiim // {
+            mediaServerIp = "192.168.66.9";
           };
         };
       };
     }
     {
-      name = "wiim-discovery-port-collides-with-relay";
+      name = "wiim-discovery-port-collides-with-ssdp";
       s = site // {
         collector = site.collector // {
           wiim = site.collector.wiim // {
-            discoveryBindPort = site.collector.airwaveSsdp.relayPort;
+            discoveryBindPort = site.collector.wiim.ssdpPort;
           };
         };
       };

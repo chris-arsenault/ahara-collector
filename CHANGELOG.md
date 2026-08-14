@@ -32,13 +32,9 @@ All notable user-visible changes are recorded here.
   one-command bootstrap installer, pull-based self-deployment gated by
   health checks with rollback, and a default-drop firewall opening exactly
   its declared surface.
-- Airwave SSDP is relayed natively on-link: M-SEARCH and MediaServer
-  announcements re-originate from the collector's IoT-LAN address
-  (multicast plus directed broadcast), renderer replies return to Airwave's
-  fixed response port within bounded search windows, and WiiM-originated
-  MediaServer searches are answered across the subnet split. This replaces
-  the gateway-hosted relay attempt, whose off-subnet SSDP the WiiM devices
-  ignored.
+- Airwave registers its UPnP MediaServer through the collector API; the
+  collector answers WiiM searches and advertises the lease on the IoT LAN.
+  Cross-VLAN SSDP forwarding and its response socket are removed.
 - A separate WiiM inventory module discovers MediaRenderers locally,
   validates descriptions and service endpoints against the IoT CIDR, exposes
   their native identities and control paths through `/wiim/devices`, and persists
