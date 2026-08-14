@@ -7,7 +7,8 @@
 #
 # What only a running system can prove is asserted here: MAC→lan0 rename,
 # firewall pins, the credentials-file restart contract, end-to-end SSDP
-# relay, sensor discovery → poll → spool → pull → ack, and the deploy
+# relay, collector-owned WiiM inventory and transport, local MediaServer
+# discovery, sensor discovery → poll → spool → pull → ack, and the deploy
 # health check. Pure policy shape is asserted at eval time in
 # tests/site-validation.nix. KVM-free so the test runs under TCG on hosted
 # CI runners.
@@ -103,26 +104,88 @@ let
 
   mockRenderer = pkgs.writeScriptBin "mock-renderer" ''
     #!${pkgs.python3}/bin/python3
-    # Answers relayed M-SEARCH like a WiiM: unicast 200 OK back to the
-    # searcher (the collector's relay port).
+    # Answers M-SEARCH like a WiiM and exposes the device-advertised UPnP
+    # control path so the collector inventory and transport are both real.
     import socket
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("0.0.0.0", 1900))
-    reply = (
-        b"HTTP/1.1 200 OK\r\n"
-        b"CACHE-CONTROL: max-age=1800\r\n"
-        b"EXT:\r\n"
-        b"LOCATION: http://192.168.30.60:49152/description.xml\r\n"
-        b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
-        b"USN: uuid:vm-wiim::urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
-        b"\r\n"
-    )
-    while True:
-        data, addr = s.recvfrom(4096)
-        if b"M-SEARCH" in data and b"MediaRenderer" in data:
-            s.sendto(reply, addr)
+    DESCRIPTION = b"""<?xml version="1.0"?>
+    <root xmlns="urn:schemas-upnp-org:device-1-0">
+      <device>
+        <deviceType>urn:schemas-upnp-org:device:MediaRenderer:1</deviceType>
+        <friendlyName>VM WiiM</friendlyName>
+        <modelName>WiiM Mini</modelName>
+        <modelNumber>Linkplay.VM</modelNumber>
+        <UDN>uuid:vm-wiim</UDN>
+        <serviceList>
+          <service><serviceType>urn:schemas-upnp-org:service:AVTransport:1</serviceType><controlURL>/upnp/control/avtransport1</controlURL></service>
+          <service><serviceType>urn:schemas-upnp-org:service:RenderingControl:1</serviceType><controlURL>/upnp/control/rendercontrol1</controlURL></service>
+          <service><serviceType>urn:schemas-wiimu-com:service:PlayQueue:1</serviceType><controlURL>/upnp/control/PlayQueue1</controlURL></service>
+        </serviceList>
+      </device>
+    </root>"""
+
+
+    def discovery():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("0.0.0.0", 1900))
+        reply = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"CACHE-CONTROL: max-age=1800\r\n"
+            b"EXT:\r\n"
+            b"LOCATION: http://192.168.30.60:49152/description.xml\r\n"
+            b"ST: urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
+            b"USN: uuid:vm-wiim::urn:schemas-upnp-org:device:MediaRenderer:1\r\n"
+            b"\r\n"
+        )
+        while True:
+            data, addr = s.recvfrom(4096)
+            if b"M-SEARCH" in data and b"MediaRenderer" in data:
+                s.sendto(reply, addr)
+
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if self.path != "/description.xml":
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/xml")
+            self.send_header("Content-Length", str(len(DESCRIPTION)))
+            self.end_headers()
+            self.wfile.write(DESCRIPTION)
+
+        def do_POST(self):
+            if self.path != "/upnp/control/avtransport1":
+                self.send_response(404)
+                self.end_headers()
+                return
+            if self.headers.get("SOAPAction") != '"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo"':
+                self.send_response(400)
+                self.end_headers()
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            body = self.rfile.read(length)
+            if b"GetTransportInfo" not in body:
+                self.send_response(400)
+                self.end_headers()
+                return
+            response = b'<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><GetTransportInfoResponse xmlns="urn:schemas-upnp-org:service:AVTransport:1"><CurrentTransportState>PLAYING</CurrentTransportState></GetTransportInfoResponse></s:Body></s:Envelope>'
+            self.send_response(200)
+            self.send_header("Content-Type", 'text/xml; charset="utf-8"')
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+            self.wfile.write(response)
+
+
+    threading.Thread(target=discovery, daemon=True).start()
+    HTTPServer(("0.0.0.0", 49152), Handler).serve_forever()
   '';
 
   airwaveProbe = pkgs.writeScriptBin "airwave-probe" ''
@@ -151,6 +214,32 @@ let
     assert b"uuid:vm-wiim" in data, data
     print("renderer reply relayed from", addr)
     sys.exit(0)
+  '';
+
+  wiimMediaProbe = pkgs.writeScriptBin "wiim-media-probe" ''
+    #!${pkgs.python3}/bin/python3
+    # Plays a WiiM searching the IoT LAN for Airwave's registered UPnP
+    # MediaServer. The response must originate at the collector.
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("192.168.30.60", 0))
+    s.settimeout(15)
+    msearch = (
+        b"M-SEARCH * HTTP/1.1\r\n"
+        b"HOST: 239.255.255.250:1900\r\n"
+        b'MAN: "ssdp:discover"\r\n'
+        b"MX: 2\r\n"
+        b"ST: urn:schemas-upnp-org:device:MediaServer:1\r\n"
+        b"\r\n"
+    )
+    s.sendto(msearch, ("192.168.30.2", 1900))
+    data, addr = s.recvfrom(4096)
+    assert addr[0] == "192.168.30.2", addr
+    assert b"200 OK" in data, data
+    assert b"urn:schemas-upnp-org:device:MediaServer:1" in data, data
+    assert b"LOCATION: http://192.168.66.3:7882/device.xml" in data, data
   '';
 in
 pkgs.testers.runNixOSTest {
@@ -251,6 +340,7 @@ pkgs.testers.runNixOSTest {
         mockEnvSensor
         mockRenderer
         airwaveProbe
+        wiimMediaProbe
       ];
       systemd.services.mock-env-sensor = {
         wantedBy = [ "multi-user.target" ];
@@ -297,6 +387,9 @@ pkgs.testers.runNixOSTest {
         collector.wait_for_unit("ahara-collector-token.service")
         collector.succeed("test -s /var/lib/ahara-collector/api-token")
         collector.succeed("test $(stat -c %a /var/lib/ahara-collector/api-token) = 600")
+        collector.wait_for_unit("ahara-collector-airwave-token.service")
+        collector.succeed("test -s /var/lib/ahara-collector/airwave-token")
+        collector.succeed("test $(stat -c %a /var/lib/ahara-collector/airwave-token) = 600")
 
     with subtest("collector service runs and binds its sockets"):
         collector.wait_for_unit("ahara-collector.service")
@@ -332,6 +425,40 @@ pkgs.testers.runNixOSTest {
 
     token = collector.succeed("cat /var/lib/ahara-collector/api-token").strip()
     auth = f"-H 'authorization: Bearer {token}'"
+    airwave_token = collector.succeed("cat /var/lib/ahara-collector/airwave-token").strip()
+    airwave_auth = f"-H 'authorization: Bearer {airwave_token}'"
+
+    with subtest("Airwave token is isolated from the sensor API"):
+        peer.fail(f"curl -sf {auth} http://192.168.30.2:8850/wiim/devices")
+        peer.fail(f"curl -sf {airwave_auth} http://192.168.30.2:8850/metrics")
+
+    with subtest("collector inventories WiiM and proxies only its advertised SOAP path"):
+        peer.wait_for_unit("mock-renderer.service")
+        peer.wait_until_succeeds(
+            f"curl -sf {airwave_auth} http://192.168.30.2:8850/wiim/devices | grep -q 'vm-wiim'",
+            timeout=120,
+        )
+        soap = '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><u:GetTransportInfo xmlns:u="urn:schemas-upnp-org:service:AVTransport:1"><InstanceID>0</InstanceID></u:GetTransportInfo></s:Body></s:Envelope>'
+        out = peer.succeed(
+            f"curl -sf -X POST {airwave_auth} "
+            "-H 'content-type: text/xml; charset=\"utf-8\"' "
+            "-H 'soapaction: \"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo\"' "
+            f"-d {shlex.quote(soap)} http://192.168.30.2:8850/wiim/vm-wiim/upnp/av-transport"
+        )
+        assert "CurrentTransportState" in out, out
+
+    with subtest("registered Airwave MediaServer is discoverable only through the collector"):
+        lease = json.dumps({
+            "uuid": "airwave-vm",
+            "location": "http://192.168.66.3:7882/device.xml",
+            "server": "Linux/1.0 UPnP/1.0 Airwave/0.1",
+            "leaseSeconds": 1200,
+        })
+        peer.succeed(
+            f"curl -sf -X PUT {airwave_auth} -H 'content-type: application/json' "
+            f"-d {shlex.quote(lease)} http://192.168.30.2:8850/wiim/media-server"
+        )
+        peer.succeed("wiim-media-probe")
 
     with subtest("credentials upload contract: file lands, service restarts, module wakes"):
         # Without credentials the sensor module idles.
