@@ -7,7 +7,7 @@
 
 The pull API carries a bearer token and the house's sensor readings, and
 TrueNAS reaches it routed across two subnets through the VP2440 — a genuine
-wire, not a loopback hop. The service itself is a dependency-free Rust binary
+wire, not a loopback hop. The service itself is a Rust device-protocol binary
 whose hand-written HTTP parsing is deliberately minimal (ADR-0005); giving it
 a TLS stack would mean either a large dependency tree or hand-rolled
 cryptography on the path that holds a private key. The gateway serves the

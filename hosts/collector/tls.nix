@@ -1,6 +1,6 @@
 # TLS termination for the pull API. The collector service speaks plain HTTP
-# and stays that way — it is a dependency-free binary whose hand-written HTTP
-# parsing has no business holding a private key — so nginx fronts it on the
+# and stays that way — its device-protocol clients have no business holding
+# the API's private key — so nginx fronts it on the
 # appliance's own address: consumers connect to collector.local.ahara.io and
 # verify a publicly-trusted chain, and the plaintext leg never leaves this
 # host's network stack.

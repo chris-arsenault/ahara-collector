@@ -317,6 +317,60 @@ let
     {
       path = [
         "collector"
+        "wiim"
+        "enable"
+      ];
+      check = isBool;
+      describe = "boolean";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "ssdpPort"
+      ];
+      check = isPort;
+      describe = "port 1-65535";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "discoveryBindPort"
+      ];
+      check = isPort;
+      describe = "port 1-65535";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "responseWindowSeconds"
+      ];
+      check = i: isInt i && i >= 1 && i <= 10;
+      describe = "response window 1-10 seconds";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "discoveryIntervalSeconds"
+      ];
+      check = isPollSeconds;
+      describe = "discovery interval 1-3600 seconds";
+    }
+    {
+      path = [
+        "collector"
+        "wiim"
+        "stateFile"
+      ];
+      check = s: isString s && match "/.*" s != null;
+      describe = "absolute path";
+    }
+    {
+      path = [
+        "collector"
         "envSensors"
         "enable"
       ];
@@ -496,8 +550,8 @@ let
       if n.address != n.routerIp then [ ] else [ "site.network.address must not equal network.routerIp" ]
     )
     ++ (
-      # The appliance exists only on the home LAN; TrueNAS reaches it routed
-      # through the gateway. A TrueNAS address inside the home CIDR means the
+      # The appliance exists only on the IoT LAN; TrueNAS reaches it routed
+      # through the gateway. A TrueNAS address inside that CIDR means the
       # values describe the pre-split network and every firewall pin is wrong.
       if ipInCidr n.truenasIp n.homeLanCidr then
         [ "site.network.truenasIp must be outside network.homeLanCidr (it is routed via the gateway)" ]
@@ -533,6 +587,12 @@ let
         [ ]
       else
         [ "site.api.port must differ from collector.airwaveSsdp.relayPort" ]
+    )
+    ++ (
+      if c.wiim.discoveryBindPort != c.airwaveSsdp.relayPort then
+        [ ]
+      else
+        [ "site.collector.wiim.discoveryBindPort must differ from collector.airwaveSsdp.relayPort" ]
     )
     ++ (
       if site.api.tlsPort != site.api.port then

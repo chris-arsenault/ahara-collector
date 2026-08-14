@@ -2,21 +2,22 @@
 
 The Ahara IoT collector appliance: a NixOS host (Beelink Mini S13)
 that lives on the dedicated IoT LAN, relays SSDP between Airwave and the WiiM
-players, polls the house's IoT sensors with locally held credentials,
+players during the control-path migration, maintains a validated WiiM
+inventory, polls the house's IoT sensors with locally held credentials,
 buffers readings in a bounded on-disk spool, and serves everything to
 TrueNAS through one authenticated API port, served over TLS at
 `collector.local.ahara.io`.
 
-It replaces the gateway-hosted SSDP relay attempt in ahara-vpn: WiiM
-devices ignore SSDP sourced from the routed server subnet, so discovery has
-to originate on the WiiM subnet itself (ADR-0001).
+WiiM devices ignore SSDP sourced from the routed server subnet, so the
+collector originates discovery on the IoT subnet that the players use
+(ADR-0001).
 
 ## Repository map
 
 | Path | Contents |
 | ---- | -------- |
 | [`hosts/collector/`](hosts/collector/) | The appliance's NixOS configuration; `site.nix` is the single source of truth |
-| [`service/`](service/) | The collector service: dependency-free Rust, one binary |
+| [`service/`](service/) | The collector service: pinned Rust device-protocol clients, one binary |
 | [`lib/`](lib/) | Pure-nix site validation |
 | [`scripts/`](scripts/) | `bootstrap-collector` installer and the machine-values renderer |
 | [`tests/`](tests/) | Eval-time site validation and the two-VM liveness test |

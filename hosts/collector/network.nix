@@ -77,6 +77,10 @@ in
       # relay port.
       ip saddr ${n.homeLanCidr} udp dport ${toString c.airwaveSsdp.relayPort} accept comment "collector:ssdp-replies"
 
+      # WiiM renderer replies return to the fixed port used by the local
+      # inventory module's M-SEARCH socket.
+      ip saddr ${n.homeLanCidr} udp dport ${toString c.wiim.discoveryBindPort} accept comment "collector:wiim-discovery-replies"
+
       # Sensor discovery replies: the service binds fixed source ports so
       # these stay narrow (env sensors reply from ${toString c.envSensors.discoveryPort},
       # Kasa devices from ${toString c.kasa.discoveryPort}).

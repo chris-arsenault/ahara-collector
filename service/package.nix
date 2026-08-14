@@ -8,7 +8,7 @@ rustPlatform.buildRustPackage {
   src = ./.;
   cargoLock.lockFile = ./Cargo.lock;
   meta = {
-    description = "Ahara home-LAN IoT collector: SSDP relay, device pollers, bounded spool, pull API";
+    description = "Ahara IoT collector: WiiM discovery, device pollers, bounded spool, pull API";
     mainProgram = "ahara-collector";
     license = lib.licenses.mit;
   };

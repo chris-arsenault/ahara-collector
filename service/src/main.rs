@@ -9,7 +9,7 @@ use ahara_collector::config::{Config, Credentials};
 use ahara_collector::metrics::Metrics;
 use ahara_collector::registry::Registry;
 use ahara_collector::spool::SpoolSet;
-use ahara_collector::{api, envelope, kasa, sensors, ssdp};
+use ahara_collector::{api, envelope, kasa, sensors, ssdp, wiim};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -104,6 +104,19 @@ fn main() {
         }
     }
 
+    if config.wiim.enable {
+        let module = wiim::WiimModule {
+            cfg: config.wiim.clone(),
+            bind_address: config.bind_address,
+            iot_cidr: config.home_cidr,
+            iot_broadcast: config.home_broadcast,
+            metrics: Arc::clone(&metrics),
+            registry: Arc::clone(&registry),
+        };
+        module.spawn(Arc::clone(&stop));
+        eprintln!("event=module_started module=wiim");
+    }
+
     if config.env_sensors.enable {
         let module = sensors::EnvSensorModule {
             cfg: config.env_sensors.clone(),
@@ -140,6 +153,7 @@ fn main() {
         registry,
         modules: ModuleFlags {
             airwave_ssdp: config.airwave_ssdp.enable,
+            wiim: config.wiim.enable,
             env_sensors: config.env_sensors.enable && credentials.env_sensors.is_some(),
             kasa: config.kasa.enable && credentials.kasa.is_some(),
         },

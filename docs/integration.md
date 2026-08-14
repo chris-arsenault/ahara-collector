@@ -1,15 +1,13 @@
 # Integration: ahara-vpn flows, airwave, and the house-sensors drain
 
 The appliance's external dependencies are declared elsewhere and owned by
-their repos. This page is the contract for each. Addresses below use the
-placeholder values; substitute the real site values.
+their repos. This page is the contract for each. The examples use the current
+site addresses; the owning repositories remain authoritative.
 
 ## ahara-vpn: gateway flows
 
-Four flows in `hosts/gateway/site.nix` `allowedFlows`, replacing the
-directed-broadcast pair `airwave-ssdp-discovery` / `airwave-ssdp-replies`
-once the collector is live. All four are ordinary forward flows, so they
-regain the Suricata inspection the gateway-hosted relay lost:
+Four active flows live in `hosts/gateway/site.nix` `allowedFlows`. All four
+are ordinary forward flows and pass through Suricata inspection:
 
 ```nix
 {

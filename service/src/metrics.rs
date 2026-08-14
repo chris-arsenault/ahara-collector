@@ -13,6 +13,11 @@ pub struct Metrics {
     pub ssdp_home_msearch: AtomicU64,
     pub ssdp_home_replies: AtomicU64,
     pub ssdp_dropped: AtomicU64,
+    pub wiim_discovery_runs: AtomicU64,
+    pub wiim_discovery_failed: AtomicU64,
+    pub wiim_descriptions_failed: AtomicU64,
+    pub wiim_devices: AtomicU64,
+    pub wiim_reachable_devices: AtomicU64,
     pub env_discovery_runs: AtomicU64,
     pub env_devices: AtomicU64,
     pub env_polls_ok: AtomicU64,
@@ -71,6 +76,26 @@ impl Metrics {
         emit(
             "collector_ssdp_dropped_total",
             self.ssdp_dropped.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_discovery_runs_total",
+            self.wiim_discovery_runs.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_discovery_failed_total",
+            self.wiim_discovery_failed.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_descriptions_failed_total",
+            self.wiim_descriptions_failed.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_devices",
+            self.wiim_devices.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_reachable_devices",
+            self.wiim_reachable_devices.load(Ordering::Relaxed),
         );
         emit(
             "collector_env_discovery_runs_total",

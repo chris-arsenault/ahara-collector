@@ -3,10 +3,9 @@ name = "ahara-collector"
 version = "0.1.0"
 edition = "2021"
 
-# Dependency-free on purpose: the appliance builds from a pinned flake with
-# no crate registry access, so everything here is std plus hand-written,
-# test-vectored primitives.
 [dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+roxmltree = "0.20"
 
 [lints.rust]
 unsafe_code = "forbid"

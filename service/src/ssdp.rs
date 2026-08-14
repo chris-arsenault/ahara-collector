@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 pub const SSDP_MULTICAST: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const MAX_DATAGRAM: usize = 2048;
-const MEDIA_RENDERER_URN: &str = "urn:schemas-upnp-org:device:MediaRenderer:1";
+pub const MEDIA_RENDERER_URN: &str = "urn:schemas-upnp-org:device:MediaRenderer:1";
 const HOME_SEARCH_WINDOW: Duration = Duration::from_secs(3);
 
 /// Search targets a home device may ask Airwave about: exactly the NT set

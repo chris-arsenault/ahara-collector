@@ -98,6 +98,11 @@ in
       ssdpPort = 1900;
       responsePort = 1901;
     };
+    wiim = v.wiim // {
+      ssdpPort = 1900;
+      discoveryBindPort = 1902;
+      stateFile = "/var/lib/ahara-collector-runtime/wiim-devices.json";
+    };
     # Discovery sockets bind fixed local ports so the reply openings in the
     # input firewall stay narrow (broadcast requests cannot ride conntrack).
     envSensors = v.envSensors // {

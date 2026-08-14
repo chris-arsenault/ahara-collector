@@ -1,5 +1,5 @@
 {
-  description = "Ahara home-LAN IoT collector appliance (Beelink S13)";
+  description = "Ahara IoT-LAN collector appliance (Beelink S13)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";

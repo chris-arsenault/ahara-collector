@@ -1,6 +1,6 @@
 //! Minimal JSON: a recursive-descent parser and a serializer. The service is
-//! dependency-free, so config files, device payloads, and API bodies all go
-//! through this module. Integers and floats are kept apart because config
+//! deliberately small, so config files, device payloads, and API bodies all
+//! go through this module. Integers and floats are kept apart because config
 //! values (ports, byte counts) must round-trip exactly.
 
 use std::collections::BTreeMap;

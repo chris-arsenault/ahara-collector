@@ -7,7 +7,7 @@
     "adminLanCidr": "192.168.65.0/24",
     "address": "192.168.30.2",
     "routerIp": "192.168.30.1",
-    "dnsServers": ["192.168.65.2"],
+    "dnsServers": ["192.168.60.2"],
     "truenasIp": "192.168.66.3"
   },
   "deployment": {
@@ -22,6 +22,11 @@
   "airwaveSsdp": {
     "enable": true,
     "relayPort": 1901,
+    "responseWindowSeconds": 4
+  },
+  "wiim": {
+    "enable": true,
+    "discoveryIntervalSeconds": 30,
     "responseWindowSeconds": 4
   },
   "envSensors": {

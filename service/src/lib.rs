@@ -10,3 +10,4 @@ pub mod registry;
 pub mod sensors;
 pub mod spool;
 pub mod ssdp;
+pub mod wiim;

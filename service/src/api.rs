@@ -39,6 +39,7 @@ pub struct Api {
 
 pub struct ModuleFlags {
     pub airwave_ssdp: bool,
+    pub wiim: bool,
     pub env_sensors: bool,
     pub kasa: bool,
 }
@@ -100,6 +101,7 @@ impl Api {
         let stats = self.spools.stats();
         let mut modules = BTreeMap::new();
         modules.insert("airwaveSsdp".to_string(), Json::Bool(self.modules.airwave_ssdp));
+        modules.insert("wiim".to_string(), Json::Bool(self.modules.wiim));
         modules.insert("envSensors".to_string(), Json::Bool(self.modules.env_sensors));
         modules.insert("kasa".to_string(), Json::Bool(self.modules.kasa));
         let mut body = BTreeMap::new();
@@ -147,9 +149,18 @@ impl Api {
                 Json::Obj(map)
             })
             .collect();
+        let wiim: Vec<Json> = self
+            .registry
+            .wiim
+            .lock()
+            .unwrap()
+            .iter()
+            .map(crate::wiim::WiimDevice::to_json)
+            .collect();
         let mut body = BTreeMap::new();
         body.insert("envSensors".to_string(), Json::Arr(env));
         body.insert("kasa".to_string(), Json::Arr(kasa));
+        body.insert("wiim".to_string(), Json::Arr(wiim));
         Response::json(200, Json::Obj(body).to_string())
     }
 
@@ -321,6 +332,7 @@ mod tests {
             registry: Arc::new(Registry::default()),
             modules: ModuleFlags {
                 airwave_ssdp: true,
+                wiim: true,
                 env_sensors: true,
                 kasa: false,
             },

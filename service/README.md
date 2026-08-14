@@ -1,6 +1,6 @@
 # ahara-collector service
 
-One dependency-free Rust binary. Run shape:
+One Rust binary with a locked dependency closure. Run shape:
 
 ```
 ahara-collector run --config <config.json> --token-file <path> --credentials <path>

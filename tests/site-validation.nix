@@ -95,6 +95,16 @@ let
       };
     }
     {
+      name = "wiim-discovery-port-collides-with-relay";
+      s = site // {
+        collector = site.collector // {
+          wiim = site.collector.wiim // {
+            discoveryBindPort = site.collector.airwaveSsdp.relayPort;
+          };
+        };
+      };
+    }
+    {
       name = "spool-cap-below-two-segments";
       s = site // {
         collector = site.collector // {

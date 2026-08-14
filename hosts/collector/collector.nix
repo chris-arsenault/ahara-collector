@@ -21,6 +21,7 @@ let
       homeBroadcast = n.homeBroadcast;
       apiPort = site.api.port;
       airwaveSsdp = c.airwaveSsdp;
+      wiim = c.wiim;
       envSensors = c.envSensors;
       kasa = c.kasa;
       spool = c.spool;
@@ -79,7 +80,10 @@ in
       RestartSec = "2s";
 
       DynamicUser = true;
-      StateDirectory = "ahara-collector-spool";
+      StateDirectory = [
+        "ahara-collector-spool"
+        "ahara-collector-runtime"
+      ];
       NoNewPrivileges = true;
       PrivateDevices = true;
       PrivateTmp = true;
