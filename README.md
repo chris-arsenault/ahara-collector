@@ -1,16 +1,16 @@
 # ahara-collector
 
 The Ahara IoT collector appliance: a NixOS host (Beelink Mini S13)
-that lives on the dedicated IoT LAN, relays SSDP between Airwave and the WiiM
-players during the control-path migration, maintains a validated WiiM
-inventory, polls the house's IoT sensors with locally held credentials,
+that lives on the dedicated IoT LAN, maintains a validated WiiM inventory and
+registry-constrained Airwave transport, advertises Airwave's MediaServer
+locally, and polls the house's IoT sensors with locally held credentials,
 buffers readings in a bounded on-disk spool, and serves everything to
 TrueNAS through one authenticated API port, served over TLS at
 `collector.local.ahara.io`.
 
-WiiM devices ignore SSDP sourced from the routed server subnet, so the
-collector originates discovery on the IoT subnet that the players use
-(ADR-0001).
+WiiM devices ignore SSDP sourced from the routed server subnet. The collector
+therefore owns their on-link discovery and reachability while Airwave retains
+playback, grouping, and protocol semantics (ADR-0011).
 
 ## Repository map
 

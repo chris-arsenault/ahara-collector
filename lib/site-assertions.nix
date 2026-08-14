@@ -371,6 +371,15 @@ let
     {
       path = [
         "collector"
+        "wiim"
+        "mediaServerPort"
+      ];
+      check = isPort;
+      describe = "port 1-65535";
+    }
+    {
+      path = [
+        "collector"
         "envSensors"
         "enable"
       ];

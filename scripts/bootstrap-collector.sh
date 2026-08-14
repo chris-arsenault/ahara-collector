@@ -185,12 +185,14 @@ cat <<EOF
 
 Installed. Next steps:
   1. Reboot into the installed system and SSH in as ops@$address.
-  2. Read the API bearer token for the TrueNAS pull job:
+  2. Read the House Sensors bearer token:
        sudo cat /var/lib/ahara-collector/api-token
+  3. Read the separately scoped Airwave bearer token:
+       sudo cat /var/lib/ahara-collector/airwave-token
 EOF
 if [ -z "$credentials_file" ]; then
   cat <<'EOF'
-  3. Upload the device credentials, then restart the collector:
+  4. Upload the device credentials, then restart the collector:
        scp credentials.json ops@ADDRESS:/tmp/credentials.json
        ssh ops@ADDRESS 'sudo install -m 0600 -o root -g root \
          /tmp/credentials.json /var/lib/ahara-collector/credentials.json \

@@ -24,7 +24,7 @@ The collector composes two configuration stores:
 - `/var/lib/ahara-collector/machine-values.json` stays on the appliance. It
   owns the interface MAC and administrator keys.
 
-Device credentials, the API token, certificates, and service spool remain in
+Device credentials, consumer-scoped API tokens, certificates, and service spool remain in
 their existing dedicated host-state paths; none belongs in either
 configuration store.
 

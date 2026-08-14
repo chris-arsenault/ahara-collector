@@ -83,7 +83,7 @@ in
     # appliance generates no stand-in, runs no ACME client, and holds no cloud
     # credential.
     # Beside the state directory rather than inside it: that one is 0750 so
-    # the device credentials and the API token stay unreadable, and nginx
+    # the device credentials and API tokens stay unreadable, and nginx
     # cannot traverse it to load a certificate.
     certificate = "/var/lib/ahara-collector-tls/api.crt";
     certificateKey = "/var/lib/ahara-collector-tls/api.key";

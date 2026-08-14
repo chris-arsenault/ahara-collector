@@ -12,3 +12,4 @@
 | [0008](0008-tls-termination-on-the-appliance.md) | The pull API terminates TLS on the appliance | Accepted | 2026-08-06 |
 | [0009](0009-versioned-topology-and-local-machine-values.md) | Version topology and keep machine values local | Accepted | 2026-08-13 |
 | [0010](0010-pinned-protocol-client-dependencies.md) | Use pinned HTTP/TLS and XML clients for device protocols | Accepted | 2026-08-14 |
+| [0011](0011-collector-owns-wiim-reachability-not-playback.md) | Collector owns WiiM reachability, not playback semantics | Accepted | 2026-08-14 |

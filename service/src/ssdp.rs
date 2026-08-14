@@ -21,15 +21,17 @@
 
 use crate::config::{AirwaveSsdpConfig, Ipv4Cidr};
 use crate::metrics::{self, Metrics};
+use crate::registry::Registry;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const SSDP_MULTICAST: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const MAX_DATAGRAM: usize = 2048;
 pub const MEDIA_RENDERER_URN: &str = "urn:schemas-upnp-org:device:MediaRenderer:1";
 const HOME_SEARCH_WINDOW: Duration = Duration::from_secs(3);
+const MEDIA_SERVER_CACHE_SECONDS: u64 = 1800;
 
 /// Search targets a home device may ask Airwave about: exactly the NT set
 /// Airwave's own SSDP responder advertises.
@@ -40,6 +42,95 @@ const RELAYED_HOME_TARGETS: [&str; 5] = [
     "urn:schemas-upnp-org:service:ContentDirectory:1",
     "urn:schemas-upnp-org:service:ConnectionManager:1",
 ];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaServerLease {
+    pub uuid: String,
+    pub location: String,
+    pub server: String,
+    pub expires_at_seconds: u64,
+}
+
+impl MediaServerLease {
+    #[must_use]
+    pub fn active(&self, now_seconds: u64) -> bool {
+        self.expires_at_seconds > now_seconds
+    }
+
+    fn nts(&self) -> Vec<(String, String)> {
+        let udn = format!("uuid:{}", self.uuid);
+        vec![
+            (
+                "upnp:rootdevice".into(),
+                format!("{udn}::upnp:rootdevice"),
+            ),
+            (udn.clone(), udn.clone()),
+            (
+                "urn:schemas-upnp-org:device:MediaServer:1".into(),
+                format!("{udn}::urn:schemas-upnp-org:device:MediaServer:1"),
+            ),
+            (
+                "urn:schemas-upnp-org:service:ContentDirectory:1".into(),
+                format!("{udn}::urn:schemas-upnp-org:service:ContentDirectory:1"),
+            ),
+            (
+                "urn:schemas-upnp-org:service:ConnectionManager:1".into(),
+                format!("{udn}::urn:schemas-upnp-org:service:ConnectionManager:1"),
+            ),
+        ]
+    }
+
+    fn cache_seconds(&self, now_seconds: u64) -> u64 {
+        self.expires_at_seconds
+            .saturating_sub(now_seconds)
+            .clamp(1, MEDIA_SERVER_CACHE_SECONDS)
+    }
+
+    fn responses(&self, payload: &[u8], now_seconds: u64) -> Vec<Vec<u8>> {
+        if !self.active(now_seconds) {
+            return Vec::new();
+        }
+        let Some(message) = SsdpMessage::parse(payload) else {
+            return Vec::new();
+        };
+        let Some(st) = message.header("st") else {
+            return Vec::new();
+        };
+        self.nts()
+            .into_iter()
+            .filter(|(nt, _)| st == "ssdp:all" || st == nt)
+            .map(|(nt, usn)| self.search_response(&nt, &usn, now_seconds).into_bytes())
+            .collect()
+    }
+
+    fn alive_messages(&self, now_seconds: u64) -> Vec<Vec<u8>> {
+        if !self.active(now_seconds) {
+            return Vec::new();
+        }
+        self.nts()
+            .into_iter()
+            .map(|(nt, usn)| {
+                format!(
+                    "NOTIFY * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nCACHE-CONTROL: max-age={}\r\nLOCATION: {}\r\nNT: {nt}\r\nNTS: ssdp:alive\r\nSERVER: {}\r\nUSN: {usn}\r\n\r\n",
+                    self.cache_seconds(now_seconds),
+                    self.location,
+                    self.server,
+                )
+                .into_bytes()
+            })
+            .collect()
+    }
+
+    fn search_response(&self, st: &str, usn: &str, now_seconds: u64) -> String {
+        let date = httpdate::fmt_http_date(SystemTime::now());
+        format!(
+            "HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age={}\r\nDATE: {date}\r\nEXT:\r\nLOCATION: {}\r\nSERVER: {}\r\nST: {st}\r\nUSN: {usn}\r\n\r\n",
+            self.cache_seconds(now_seconds),
+            self.location,
+            self.server,
+        )
+    }
+}
 
 pub struct RelayState {
     /// Deadline until which renderer replies are forwarded to Airwave.
@@ -220,6 +311,7 @@ pub struct Relay {
     pub home_broadcast: Ipv4Addr,
     pub bind_address: Ipv4Addr,
     pub metrics: Arc<Metrics>,
+    pub registry: Arc<Registry>,
 }
 
 impl Relay {
@@ -272,6 +364,24 @@ impl Relay {
         if self.home_cidr.contains(src_ip) {
             if is_relayable_home_search(payload) {
                 metrics::inc(&self.metrics.ssdp_home_msearch);
+                let local = self
+                    .registry
+                    .media_server
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .map_or_else(Vec::new, |lease| lease.responses(payload, unix_seconds()));
+                if !local.is_empty() {
+                    metrics::inc(&self.metrics.ssdp_home_replies);
+                    return local
+                        .into_iter()
+                        .map(|payload| Outgoing {
+                            via: Via::Relay,
+                            dest: src,
+                            payload,
+                        })
+                        .collect();
+                }
                 state.pending_home.retain(|(addr, _)| *addr != src);
                 state.pending_home.push((src, now + HOME_SEARCH_WINDOW));
                 // Bounded: a chatty LAN cannot grow this without limit.
@@ -443,7 +553,49 @@ pub fn run(
             }
         }));
     }
+    let sender = relay_sock.try_clone()?;
+    let relay = Arc::clone(&relay);
+    let stop = Arc::clone(&stop);
+    handles.push(std::thread::spawn(move || {
+        while !stop.load(Ordering::Relaxed) {
+            let messages = relay
+                .registry
+                .media_server
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map_or_else(Vec::new, |lease| lease.alive_messages(unix_seconds()));
+            for payload in messages {
+                for target in [SSDP_MULTICAST, relay.home_broadcast] {
+                    let destination =
+                        SocketAddr::V4(SocketAddrV4::new(target, relay.cfg.ssdp_port));
+                    if let Err(error) = sender.send_to(&payload, destination) {
+                        eprintln!(
+                            "event=ssdp_media_server_send_error destination={destination} error={error}"
+                        );
+                    }
+                }
+            }
+            sleep_interruptible(Duration::from_secs(60), &stop);
+        }
+    }));
     Ok(handles)
+}
+
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
+fn sleep_interruptible(total: Duration, stop: &AtomicBool) {
+    let step = Duration::from_millis(200);
+    let mut remaining = total;
+    while remaining > Duration::ZERO && !stop.load(Ordering::Relaxed) {
+        let chunk = remaining.min(step);
+        std::thread::sleep(chunk);
+        remaining = remaining.saturating_sub(chunk);
+    }
 }
 
 /// systemd starts us alongside the network; a not-yet-assigned address is a
@@ -474,6 +626,7 @@ mod tests {
             home_broadcast: cfg.home_broadcast,
             bind_address: cfg.bind_address,
             metrics: Arc::new(Metrics::default()),
+            registry: Arc::new(Registry::default()),
         }
     }
 
@@ -565,6 +718,27 @@ mod tests {
             relay.process_relay(addr("192.168.66.3", 1900), airwave_reply, now, &mut state);
         assert_eq!(replies.len(), 1);
         assert_eq!(replies[0].dest, requester);
+    }
+
+    #[test]
+    fn active_media_server_answers_home_search_locally() {
+        let relay = relay();
+        *relay.registry.media_server.lock().unwrap() = Some(MediaServerLease {
+            uuid: "airwave".into(),
+            location: "http://192.168.66.3:7882/device.xml".into(),
+            server: "Linux/1.0 UPnP/1.0 Airwave/0.1.0".into(),
+            expires_at_seconds: unix_seconds() + 600,
+        });
+        let mut state = RelayState::new();
+        let search = b"M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaServer:1\r\n\r\n";
+        let requester = addr("192.168.65.60", 41234);
+        let replies = relay.process_main(requester, search, Instant::now(), &mut state);
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].dest, requester);
+        let payload = String::from_utf8_lossy(&replies[0].payload);
+        assert!(payload.contains("ST: urn:schemas-upnp-org:device:MediaServer:1"));
+        assert!(payload.contains("LOCATION: http://192.168.66.3:7882/device.xml"));
+        assert!(state.pending_home.is_empty());
     }
 
     #[test]

@@ -11,4 +11,5 @@ pub struct Registry {
     pub env: Mutex<Vec<EnvDevice>>,
     pub kasa: Mutex<Vec<KasaDevice>>,
     pub wiim: Mutex<Vec<WiimDevice>>,
+    pub media_server: Mutex<Option<crate::ssdp::MediaServerLease>>,
 }

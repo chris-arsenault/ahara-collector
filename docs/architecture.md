@@ -42,7 +42,8 @@ its own.
 One Rust binary (`service/`), built from a locked dependency closure and run
 as a hardened `DynamicUser` systemd unit, has four concerns:
 
-**Airwave SSDP relay** (ADR-0001). Airwave sends M-SEARCH (from its fixed
+**Airwave reachability** (ADR-0011). The migration relay still accepts
+Airwave M-SEARCH (from its fixed
 response port 1901) and MediaServer NOTIFYs to the collector's IoT-LAN
 address, port 1900. The relay validates each message and re-originates it
 on-link — multicast 239.255.255.250 plus the directed broadcast, because
@@ -51,15 +52,21 @@ replies within the search window (MX-derived, bounded) are validated
 (MediaRenderer ST, LOCATION inside the IoT subnet) and returned to
 Airwave's port 1901. WiiM-originated M-SEARCH for MediaServer targets is
 relayed to Airwave and its unicast answers are returned to the requesting
-device, so both discovery directions work across the subnet split.
+device. Once Airwave uses the native inventory and transport, those routed
+SSDP paths retire. Airwave registers its existing MediaServer as a renewable
+lease instead; the collector answers WiiM searches and emits all five UPnP
+advertisements locally while the lease is active.
 
 **WiiM inventory.** A separate on-link discovery socket originates
 MediaRenderer searches from the IoT address, validates every response and
 description endpoint against the IoT CIDR, and parses the device's native UDN,
 identity, and advertised service control paths. The current snapshot is
-available from `/devices`; last-known entries persist as appliance runtime
+available from `/wiim/devices` to Airwave; last-known entries persist as appliance runtime
 state and are marked unreachable until a later scan sees them. This inventory
-has no reading spool and carries no Airwave playback or grouping state.
+has no reading spool and carries no Airwave playback or grouping state. A
+scoped transport resolves Airwave's device IDs to the registered UPnP service
+paths or fixed LinkPlay endpoint. Redirects are disabled, response bodies are
+bounded, and callers cannot provide destination URLs.
 
 **Device pollers.** The environment-sensor module discovers AtomS3U
 devices by UDP broadcast, validates them against `/sensors`, and polls at
@@ -81,13 +88,19 @@ stream per consumer, no fan-out anywhere. The API is one port:
 | ----- | ---- | ------- |
 | `GET /health` | none | liveness for the deploy gate and consumers |
 | `GET /metrics` | bearer | service counters plus host load/memory gauges |
-| `GET /devices` | bearer | discovered environment, Kasa, and WiiM devices |
+| `GET /devices` | House Sensors bearer | discovered environment and Kasa devices |
 | `GET /readings/next?module=<name>` | bearer | oldest closed segment of that module's spool |
 | `POST /readings/ack` | bearer | delete a drained batch (`module` + `batchId`) |
 | `POST /ingest` | device Basic | device-originated envelope push, routed by each envelope's module |
+| `GET /wiim/devices` | Airwave bearer | native renderer inventory |
+| `POST /wiim/probe` | Airwave bearer | validate and add a grouped renderer by IoT address |
+| `POST /wiim/<id>/upnp/<service>` | Airwave bearer | AVTransport, RenderingControl, or PlayQueue request |
+| `GET /wiim/<id>/linkplay` | Airwave bearer | fixed LinkPlay HTTPS request |
+| `PUT /wiim/media-server` | Airwave bearer | renew the local MediaServer SSDP lease |
 
-The bearer token is generated on the host at first boot and read by the
-TrueNAS pull job's operator once. Host metrics are served from `/proc` on
+The House Sensors and Airwave bearer tokens are generated separately on the
+host at first boot. Neither token authorizes the other consumer's routes.
+Host metrics are served from `/proc` on
 the same port, so the appliance needs no node-exporter and no second
 listener.
 

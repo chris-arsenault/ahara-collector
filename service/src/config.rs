@@ -53,6 +53,7 @@ pub struct WiimConfig {
     pub response_window_seconds: u64,
     pub discovery_interval_seconds: u64,
     pub state_file: String,
+    pub media_server_port: u16,
 }
 
 #[derive(Debug, Clone)]
@@ -186,6 +187,7 @@ impl Config {
                 )?
                 .max(5),
                 state_file: req_str(&doc, "wiim", "stateFile")?,
+                media_server_port: req_port(&doc, "wiim", "mediaServerPort")?,
             },
             env_sensors: poller(&doc, "envSensors")?,
             kasa: poller(&doc, "kasa")?,
@@ -261,7 +263,7 @@ pub fn test_config() -> Config {
                         "responsePort": 1901, "relayPort": 1901, "responseWindowSeconds": 4},
         "wiim": {"enable": true, "ssdpPort": 1900, "discoveryBindPort": 1902,
                  "responseWindowSeconds": 4, "discoveryIntervalSeconds": 30,
-                 "stateFile": "/tmp/wiim-devices.json"},
+                 "stateFile": "/tmp/wiim-devices.json", "mediaServerPort": 7882},
         "envSensors": {"enable": true, "discoveryPort": 12343, "discoveryBindPort": 12344,
                        "devicePort": 80, "pollIntervalSeconds": 1, "discoveryIntervalHours": 4},
         "kasa": {"enable": true, "discoveryPort": 20002, "discoveryBindPort": 20003,
@@ -283,6 +285,7 @@ mod tests {
         assert_eq!(config.api_port, 8850);
         assert_eq!(config.airwave_ssdp.airwave_ip, "192.168.66.3".parse::<Ipv4Addr>().unwrap());
         assert_eq!(config.wiim.discovery_bind_port, 1902);
+        assert_eq!(config.wiim.media_server_port, 7882);
         assert_eq!(config.kasa.static_devices.len(), 1);
         assert!(config.home_cidr.contains("192.168.65.77".parse().unwrap()));
         assert!(!config.home_cidr.contains("192.168.66.3".parse().unwrap()));

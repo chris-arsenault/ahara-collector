@@ -41,8 +41,12 @@ All notable user-visible changes are recorded here.
   ignored.
 - A separate WiiM inventory module discovers MediaRenderers locally,
   validates descriptions and service endpoints against the IoT CIDR, exposes
-  their native identities and control paths through `/devices`, and persists
+  their native identities and control paths through `/wiim/devices`, and persists
   last-known addresses as runtime state without creating a readings stream.
+- Airwave now has a separately authenticated WiiM API: registry-constrained
+  UPnP and LinkPlay transport, grouped-renderer probing, and renewable local
+  MediaServer advertisement. Device IDs and advertised service paths choose
+  every outbound destination; redirects and oversized responses are rejected.
 - Outbound device HTTP/TLS and XML parsing use a locked dependency closure so
   later WiiM control proxying can remain in testable Rust code while nginx
   continues to terminate only the collector API's inbound TLS.

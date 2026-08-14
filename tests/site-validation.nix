@@ -105,6 +105,16 @@ let
       };
     }
     {
+      name = "invalid-wiim-media-server-port";
+      s = site // {
+        collector = site.collector // {
+          wiim = site.collector.wiim // {
+            mediaServerPort = 0;
+          };
+        };
+      };
+    }
+    {
       name = "spool-cap-below-two-segments";
       s = site // {
         collector = site.collector // {

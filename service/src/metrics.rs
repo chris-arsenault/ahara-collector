@@ -18,6 +18,10 @@ pub struct Metrics {
     pub wiim_descriptions_failed: AtomicU64,
     pub wiim_devices: AtomicU64,
     pub wiim_reachable_devices: AtomicU64,
+    pub wiim_proxy_requests: AtomicU64,
+    pub wiim_proxy_failed: AtomicU64,
+    pub wiim_probes: AtomicU64,
+    pub wiim_media_registrations: AtomicU64,
     pub env_discovery_runs: AtomicU64,
     pub env_devices: AtomicU64,
     pub env_polls_ok: AtomicU64,
@@ -96,6 +100,22 @@ impl Metrics {
         emit(
             "collector_wiim_reachable_devices",
             self.wiim_reachable_devices.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_proxy_requests_total",
+            self.wiim_proxy_requests.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_proxy_failed_total",
+            self.wiim_proxy_failed.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_probes_total",
+            self.wiim_probes.load(Ordering::Relaxed),
+        );
+        emit(
+            "collector_wiim_media_registrations_total",
+            self.wiim_media_registrations.load(Ordering::Relaxed),
         );
         emit(
             "collector_env_discovery_runs_total",

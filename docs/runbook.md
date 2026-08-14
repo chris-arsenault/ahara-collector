@@ -92,10 +92,13 @@ given), and installs. Nothing is committed to Git.
 ## After first boot
 
 1. SSH in: `ssh ops@192.168.30.2`.
-2. Read the API token and give it to the house-sensors drain
+2. Read the House Sensors token and give it to the house-sensors drain
    ([integration.md](integration.md)):
    `sudo cat /var/lib/ahara-collector/api-token`
-3. If credentials were not seeded at install:
+3. Read the separately scoped Airwave token and store it at the Airwave
+   stack's configured secret path:
+   `sudo cat /var/lib/ahara-collector/airwave-token`
+4. If credentials were not seeded at install:
 
    ```bash
    scp credentials.json ops@192.168.30.2:/tmp/credentials.json
@@ -104,7 +107,7 @@ given), and installs. Nothing is committed to Git.
      rm /tmp/credentials.json && sudo systemctl restart ahara-collector'
    ```
 
-4. Verify: `collector-health-check` prints `health: all checks ok`, and
+5. Verify: `collector-health-check` prints `health: all checks ok`, and
    `curl -s https://collector.local.ahara.io:8443/health` answers from the
    IoT LAN. No `-k`: the certificate is publicly trusted. If nothing answers,
    the appliance has no certificate yet — check `ahara-enroll` and
@@ -121,16 +124,16 @@ given), and installs. Nothing is committed to Git.
 | Rotate device credentials | Re-upload the file, `sudo systemctl restart ahara-collector` |
 | See what the collector is doing | `journalctl -u ahara-collector -f` (structured `event=` lines) |
 | Check the spool | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/metrics \| grep spool` |
-| List discovered devices | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/devices` |
+| List sensor devices | `curl -s -H "authorization: Bearer $SENSOR_TOKEN" https://collector.local.ahara.io:8443/devices` |
+| List WiiM devices | `curl -s -H "authorization: Bearer $AIRWAVE_TOKEN" https://collector.local.ahara.io:8443/wiim/devices` |
 | Check certificate expiry | `cat /var/lib/ahara-collector/metrics/tls_cert.prom` |
 
 ## Recovery
 
-The appliance is rebuildable from the repo plus three pieces of host
-state: `machine-values.json`, `credentials.json`, and the API
-token (which regenerates on first boot — the repo is public, so there is no
-repo credential to restore). Re-run the bootstrap and hand the new API token to
-the house-sensors drain.
+The appliance is rebuildable from the repo plus `machine-values.json` and
+`credentials.json`. Both API tokens regenerate on first boot; the repo is
+public, so there is no repository credential to restore. Re-run the bootstrap
+and hand each new token to its consumer.
 
 A bad release rolls itself back (health gate). A bad machine-values edit
 fails validation and never activates; fix the file and re-run

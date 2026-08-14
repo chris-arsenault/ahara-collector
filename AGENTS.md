@@ -11,8 +11,9 @@ Read this before editing. [README.md](README.md) has the repository map.
   interface MAC and administrator keys live in machine-local
   `machine-values.json`. No literal topology belongs in a module or service.
 - **Secrets never enter the repo or the Nix store.** Device credentials and
-  the API token are host state under `/var/lib/ahara-collector/`, passed to
-  the service via systemd credentials. Public keys are the only key material
+  the scoped House Sensors and Airwave API tokens are host state under
+  `/var/lib/ahara-collector/`, passed to the service via systemd credentials.
+  Public keys are the only key material
   that crosses the wire at bootstrap.
 - **Keep the Rust dependency surface narrow and pinned.** The appliance builds
   offline from `Cargo.lock` through the pinned flake. HTTP/TLS and XML parsing
@@ -35,11 +36,11 @@ Read this before editing. [README.md](README.md) has the repository map.
 | ---- | ----- | ----- |
 | Site values contract | `lib/site-assertions.nix` | Validates the derived site at eval time |
 | Host modules | `hosts/collector/*.nix` | One concern per file; composition in `configuration.nix` |
-| SSDP relay | `service/src/ssdp.rs` | Pure packet processors + thin socket loops |
-| WiiM inventory | `service/src/wiim.rs` | On-link discovery, endpoint validation, runtime cache |
+| SSDP migration + MediaServer advertisement | `service/src/ssdp.rs` | Pure packet processors + thin socket loops |
+| WiiM inventory and transport | `service/src/wiim.rs` | On-link discovery, endpoint validation, scoped HTTP/HTTPS |
 | Sensor pollers | `service/src/sensors.rs`, `service/src/kasa.rs` | Kasa KLAP is experimental until validated on hardware |
 | Spool | `service/src/spool.rs` | Bounded, oldest-dropped, ack-deletes |
-| API | `service/src/api.rs` | Single port; bearer for pulls, Basic for device pushes |
+| API | `service/src/api.rs` | Single port; consumer-scoped bearers, Basic for device pushes |
 | TLS terminator | `hosts/collector/tls.nix` | nginx in front of the API port |
 | Updater + health gate | `hosts/collector/deployment.nix` | The ahara-vpn ADR-0001/0008 pattern |
 | Installer | `scripts/bootstrap-collector.sh` | scp a public key, run one command |

@@ -14,6 +14,11 @@
 //!                         drained batch (bearer)
 //!   POST /ingest          envelope JSON lines from devices, routed to
 //!                         each envelope's module spool (Basic auth)
+//!   GET  /wiim/devices    native renderer inventory (Airwave bearer)
+//!   POST /wiim/probe      add a grouped renderer by IoT address (Airwave bearer)
+//!   POST /wiim/<id>/upnp/<service>  scoped SOAP transport (Airwave bearer)
+//!   GET  /wiim/<id>/linkplay        scoped HTTPS transport (Airwave bearer)
+//!   PUT  /wiim/media-server         local SSDP lease (Airwave bearer)
 
 use crate::config::{BasicCredentials, Config};
 use crate::crypto;
@@ -23,17 +28,23 @@ use crate::json::Json;
 use crate::metrics::{self, Metrics};
 use crate::registry::Registry;
 use crate::spool::SpoolSet;
+use crate::wiim::{WiimService, WiimTransport};
+use reqwest::Url;
 use std::collections::BTreeMap;
-use std::net::{SocketAddr, SocketAddrV4, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub struct Api {
-    pub token: Vec<u8>,
+    pub sensor_token: Vec<u8>,
+    pub airwave_token: Vec<u8>,
     pub ingest_creds: Option<BasicCredentials>,
     pub spools: Arc<SpoolSet>,
     pub metrics: Arc<Metrics>,
     pub registry: Arc<Registry>,
+    pub wiim_transport: Arc<WiimTransport>,
+    pub airwave_ip: Ipv4Addr,
+    pub media_server_port: u16,
     pub modules: ModuleFlags,
 }
 
@@ -45,14 +56,14 @@ pub struct ModuleFlags {
 }
 
 impl Api {
-    fn authorized_bearer(&self, request: &Request) -> bool {
+    fn authorized_bearer(request: &Request, token: &[u8]) -> bool {
         let Some(header) = request.headers.get("authorization") else {
             return false;
         };
         let Some(presented) = header.strip_prefix("Bearer ") else {
             return false;
         };
-        crypto::eq_constant_time(presented.trim().as_bytes(), &self.token)
+        crypto::eq_constant_time(presented.trim().as_bytes(), token)
     }
 
     fn authorized_basic(&self, request: &Request) -> bool {
@@ -74,6 +85,9 @@ impl Api {
 
     pub fn handle(&self, request: &Request) -> Response {
         metrics::inc(&self.metrics.api_requests);
+        if let Some(response) = self.wiim_route(request) {
+            return response;
+        }
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", "/health") => self.health(),
             ("GET", "/metrics") => self.gated(request, |api| {
@@ -83,17 +97,54 @@ impl Api {
             ("GET", "/readings/next") => self.gated(request, |api| api.readings_next(request)),
             ("POST", "/readings/ack") => self.gated(request, |api| api.readings_ack(request)),
             ("POST", "/ingest") => self.ingest(request),
-            ("GET" | "POST", _) => Response::empty(404),
+            ("GET" | "POST" | "PUT", _) => Response::empty(404),
             _ => Response::empty(405),
         }
     }
 
     fn gated(&self, request: &Request, handler: impl Fn(&Api) -> Response) -> Response {
-        if self.authorized_bearer(request) {
+        if Self::authorized_bearer(request, &self.sensor_token) {
             handler(self)
         } else {
             metrics::inc(&self.metrics.api_unauthorized);
             Response::empty(401)
+        }
+    }
+
+    fn gated_airwave(&self, request: &Request, handler: impl Fn(&Api) -> Response) -> Response {
+        if Self::authorized_bearer(request, &self.airwave_token) {
+            handler(self)
+        } else {
+            metrics::inc(&self.metrics.api_unauthorized);
+            Response::empty(401)
+        }
+    }
+
+    fn wiim_route(&self, request: &Request) -> Option<Response> {
+        match (request.method.as_str(), request.path.as_str()) {
+            ("GET", "/wiim/devices") => {
+                return Some(self.gated_airwave(request, Api::wiim_devices));
+            }
+            ("POST", "/wiim/probe") => {
+                return Some(self.gated_airwave(request, |api| api.wiim_probe(request)));
+            }
+            ("PUT", "/wiim/media-server") => {
+                return Some(self.gated_airwave(request, |api| api.media_server_register(request)));
+            }
+            _ => {}
+        }
+
+        let suffix = request.path.strip_prefix("/wiim/")?;
+        let parts = suffix.split('/').collect::<Vec<_>>();
+        match (request.method.as_str(), parts.as_slice()) {
+            ("POST", [id, "upnp", service]) => Some(self.gated_airwave(request, |api| {
+                api.wiim_upnp(request, id, service)
+            })),
+            ("GET", [id, "linkplay"]) => Some(self.gated_airwave(request, |api| {
+                api.wiim_linkplay(request, id)
+            })),
+            ("GET" | "POST" | "PUT", _) => Some(Response::empty(404)),
+            _ => Some(Response::empty(405)),
         }
     }
 
@@ -149,7 +200,14 @@ impl Api {
                 Json::Obj(map)
             })
             .collect();
-        let wiim: Vec<Json> = self
+        let mut body = BTreeMap::new();
+        body.insert("envSensors".to_string(), Json::Arr(env));
+        body.insert("kasa".to_string(), Json::Arr(kasa));
+        Response::json(200, Json::Obj(body).to_string())
+    }
+
+    fn wiim_devices(&self) -> Response {
+        let devices = self
             .registry
             .wiim
             .lock()
@@ -158,9 +216,120 @@ impl Api {
             .map(crate::wiim::WiimDevice::to_json)
             .collect();
         let mut body = BTreeMap::new();
-        body.insert("envSensors".to_string(), Json::Arr(env));
-        body.insert("kasa".to_string(), Json::Arr(kasa));
-        body.insert("wiim".to_string(), Json::Arr(wiim));
+        body.insert("devices".to_string(), Json::Arr(devices));
+        Response::json(200, Json::Obj(body).to_string())
+    }
+
+    fn wiim_probe(&self, request: &Request) -> Response {
+        let Ok(text) = std::str::from_utf8(&request.body) else {
+            return Response::empty(400);
+        };
+        let Ok(document) = crate::json::parse(text) else {
+            return Response::empty(400);
+        };
+        let Some(ip) = document
+            .get("ip")
+            .and_then(Json::as_str)
+            .and_then(|value| value.parse().ok())
+        else {
+            return Response::empty(400);
+        };
+        metrics::inc(&self.metrics.wiim_probes);
+        match self.wiim_transport.probe(ip) {
+            Ok(device) => Response::json(200, device.to_json().to_string()),
+            Err(error) => {
+                eprintln!("event=wiim_probe_failed ip={ip} error={error}");
+                Response::empty(502)
+            }
+        }
+    }
+
+    fn wiim_upnp(&self, request: &Request, id: &str, service: &str) -> Response {
+        let service = match service {
+            "av-transport" => WiimService::AvTransport,
+            "rendering-control" => WiimService::RenderingControl,
+            "play-queue" => WiimService::PlayQueue,
+            _ => return Response::empty(404),
+        };
+        metrics::inc(&self.metrics.wiim_proxy_requests);
+        match self.wiim_transport.proxy_upnp(
+            id,
+            service,
+            request.headers.get("content-type").map(String::as_str),
+            request.headers.get("soapaction").map(String::as_str),
+            &request.body,
+        ) {
+            Ok(response) => Response::bytes(response.status, &response.content_type, response.body),
+            Err(error) => {
+                metrics::inc(&self.metrics.wiim_proxy_failed);
+                eprintln!("event=wiim_proxy_failed protocol=upnp device={id} error={error}");
+                Response::empty(502)
+            }
+        }
+    }
+
+    fn wiim_linkplay(&self, request: &Request, id: &str) -> Response {
+        metrics::inc(&self.metrics.wiim_proxy_requests);
+        match self.wiim_transport.proxy_linkplay(id, &request.raw_query) {
+            Ok(response) => Response::bytes(response.status, &response.content_type, response.body),
+            Err(error) => {
+                metrics::inc(&self.metrics.wiim_proxy_failed);
+                eprintln!("event=wiim_proxy_failed protocol=linkplay device={id} error={error}");
+                Response::empty(502)
+            }
+        }
+    }
+
+    fn media_server_register(&self, request: &Request) -> Response {
+        let Ok(text) = std::str::from_utf8(&request.body) else {
+            return Response::empty(400);
+        };
+        let Ok(document) = crate::json::parse(text) else {
+            return Response::empty(400);
+        };
+        let Some(uuid) = document.get("uuid").and_then(Json::as_str) else {
+            return Response::empty(400);
+        };
+        let Some(location) = document.get("location").and_then(Json::as_str) else {
+            return Response::empty(400);
+        };
+        let Some(server) = document.get("server").and_then(Json::as_str) else {
+            return Response::empty(400);
+        };
+        let lease_seconds = document
+            .get("leaseSeconds")
+            .and_then(Json::as_i64)
+            .and_then(|value| u64::try_from(value).ok())
+            .unwrap_or(1200)
+            .clamp(60, 1800);
+        if !valid_uuid(uuid) || server.is_empty() || server.len() > 256 || server.contains(['\r', '\n']) {
+            return Response::empty(400);
+        }
+        let Ok(url) = Url::parse(location) else {
+            return Response::empty(400);
+        };
+        let location_ip = url.host_str().and_then(|host| host.parse().ok());
+        if url.scheme() != "http"
+            || location_ip != Some(self.airwave_ip)
+            || url.port_or_known_default() != Some(self.media_server_port)
+            || url.path() != "/device.xml"
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Response::empty(400);
+        }
+        let expires_at_seconds = unix_seconds().saturating_add(lease_seconds);
+        *self.registry.media_server.lock().unwrap() = Some(crate::ssdp::MediaServerLease {
+            uuid: uuid.to_string(),
+            location: location.to_string(),
+            server: server.to_string(),
+            expires_at_seconds,
+        });
+        metrics::inc(&self.metrics.wiim_media_registrations);
+        let mut body = BTreeMap::new();
+        body.insert("expiresAtSeconds".into(), Json::Int(expires_at_seconds as i64));
         Response::json(200, Json::Obj(body).to_string())
     }
 
@@ -278,6 +447,20 @@ impl Api {
     }
 }
 
+fn valid_uuid(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+fn unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
 /// Accept loop; one thread per connection. LAN-scale service — the firewall
 /// already restricts who can reach it.
 pub fn run(api: Arc<Api>, config: &Config, stop: Arc<AtomicBool>) -> std::io::Result<()> {
@@ -321,15 +504,28 @@ mod tests {
     fn api_with_spool(dir: &str) -> Api {
         let path = std::env::temp_dir().join(format!("ahara-api-test-{dir}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
+        let registry = Arc::new(Registry::default());
+        let wiim_transport = Arc::new(
+            WiimTransport::new(
+                crate::config::Ipv4Cidr::parse("192.168.65.0/24").unwrap(),
+                path.join("wiim.json").to_string_lossy().to_string(),
+                Arc::clone(&registry),
+            )
+            .unwrap(),
+        );
         Api {
-            token: b"testtoken".to_vec(),
+            sensor_token: b"sensor-testtoken".to_vec(),
+            airwave_token: b"airwave-testtoken".to_vec(),
             ingest_creds: Some(BasicCredentials {
                 username: "admin".into(),
                 password: "pw".into(),
             }),
             spools: Arc::new(SpoolSet::open(&path, 1024, 65536).unwrap()),
             metrics: Arc::new(Metrics::default()),
-            registry: Arc::new(Registry::default()),
+            registry,
+            wiim_transport,
+            airwave_ip: "192.168.66.3".parse().unwrap(),
+            media_server_port: 7882,
             modules: ModuleFlags {
                 airwave_ssdp: true,
                 wiim: true,
@@ -349,6 +545,7 @@ mod tests {
         Request {
             method: method.to_string(),
             path: path.to_string(),
+            raw_query: query_text.to_string(),
             query,
             headers: headers
                 .iter()
@@ -372,7 +569,7 @@ mod tests {
             api.handle(&request(
                 "GET",
                 "/metrics",
-                &[("authorization", "Bearer testtoken")],
+                &[("authorization", "Bearer sensor-testtoken")],
                 b""
             ))
             .status,
@@ -384,7 +581,7 @@ mod tests {
     #[test]
     fn drain_and_ack_cycle() {
         let api = api_with_spool("drain");
-        let auth = [("authorization", "Bearer testtoken")];
+        let auth = [("authorization", "Bearer sensor-testtoken")];
         // The module parameter is required, and its charset is validated.
         assert_eq!(api.handle(&request("GET", "/readings/next", &auth, b"")).status, 400);
         assert_eq!(
@@ -459,7 +656,7 @@ mod tests {
 
         // Pushed envelopes land in their declared module's stream,
         // normalized so every one carries a timestamp.
-        let auth = [("authorization", "Bearer testtoken")];
+        let auth = [("authorization", "Bearer sensor-testtoken")];
         let drained = api.handle(&request("GET", "/readings/next?module=push", &auth, b""));
         assert_eq!(drained.status, 200);
         let drained_body = String::from_utf8(drained.body).unwrap();
@@ -468,6 +665,32 @@ mod tests {
         assert!(
             lines.lines().all(|l| l.contains("\"timestampNs\":")),
             "{lines}"
+        );
+    }
+
+    #[test]
+    fn airwave_token_is_scoped_to_wiim_routes() {
+        let api = api_with_spool("airwave-scope");
+        let sensor = [("authorization", "Bearer sensor-testtoken")];
+        let airwave = [("authorization", "Bearer airwave-testtoken")];
+        assert_eq!(api.handle(&request("GET", "/wiim/devices", &sensor, b"")).status, 401);
+        assert_eq!(api.handle(&request("GET", "/wiim/devices", &airwave, b"")).status, 200);
+        assert_eq!(api.handle(&request("GET", "/metrics", &airwave, b"")).status, 401);
+        assert_eq!(api.handle(&request("GET", "/metrics", &sensor, b"")).status, 200);
+    }
+
+    #[test]
+    fn media_server_registration_is_pinned_to_airwave() {
+        let api = api_with_spool("media-server");
+        let auth = [("authorization", "Bearer airwave-testtoken")];
+        let good = br#"{"uuid":"airwave-1","location":"http://192.168.66.3:7882/device.xml","server":"Linux/1.0 UPnP/1.0 Airwave/0.1","leaseSeconds":600}"#;
+        assert_eq!(api.handle(&request("PUT", "/wiim/media-server", &auth, good)).status, 200);
+        assert!(api.registry.media_server.lock().unwrap().is_some());
+
+        let wrong_host = br#"{"uuid":"airwave-1","location":"http://192.168.66.9:7882/device.xml","server":"Airwave","leaseSeconds":600}"#;
+        assert_eq!(
+            api.handle(&request("PUT", "/wiim/media-server", &auth, wrong_host)).status,
+            400
         );
     }
 }

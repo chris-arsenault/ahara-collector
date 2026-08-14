@@ -27,7 +27,8 @@
   "wiim": {
     "enable": true,
     "discoveryIntervalSeconds": 30,
-    "responseWindowSeconds": 4
+    "responseWindowSeconds": 4,
+    "mediaServerPort": 7882
   },
   "envSensors": {
     "enable": true,

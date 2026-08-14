@@ -15,6 +15,9 @@ pub const MAX_BODY: usize = 1024 * 1024;
 pub struct Request {
     pub method: String,
     pub path: String,
+    /// Query text exactly as received. The scoped WiiM transport forwards it
+    /// without decoding or re-encoding LinkPlay commands.
+    pub raw_query: String,
     pub query: BTreeMap<String, String>,
     pub headers: BTreeMap<String, String>,
     pub body: Vec<u8>,
@@ -23,7 +26,7 @@ pub struct Request {
 #[derive(Debug)]
 pub struct Response {
     pub status: u16,
-    pub content_type: &'static str,
+    pub content_type: String,
     pub body: Vec<u8>,
 }
 
@@ -31,7 +34,7 @@ impl Response {
     pub fn json(status: u16, body: String) -> Response {
         Response {
             status,
-            content_type: "application/json",
+            content_type: "application/json".into(),
             body: body.into_bytes(),
         }
     }
@@ -39,7 +42,7 @@ impl Response {
     pub fn text(status: u16, body: &str) -> Response {
         Response {
             status,
-            content_type: "text/plain; charset=utf-8",
+            content_type: "text/plain; charset=utf-8".into(),
             body: body.as_bytes().to_vec(),
         }
     }
@@ -47,8 +50,16 @@ impl Response {
     pub fn empty(status: u16) -> Response {
         Response {
             status,
-            content_type: "text/plain; charset=utf-8",
+            content_type: "text/plain; charset=utf-8".into(),
             body: Vec::new(),
+        }
+    }
+
+    pub fn bytes(status: u16, content_type: &str, body: Vec<u8>) -> Response {
+        Response {
+            status,
+            content_type: content_type.to_string(),
+            body,
         }
     }
 }
@@ -59,9 +70,11 @@ fn status_phrase(status: u16) -> &'static str {
         204 => "No Content",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         413 => "Payload Too Large",
+        502 => "Bad Gateway",
         _ => "Internal Server Error",
     }
 }
@@ -121,6 +134,7 @@ pub fn read_request(stream: &mut TcpStream) -> Result<Request, String> {
     Ok(Request {
         method,
         path,
+        raw_query: query_text,
         query,
         headers,
         body,
@@ -282,6 +296,7 @@ mod tests {
             let request = read_request(&mut stream).unwrap();
             assert_eq!(request.method, "POST");
             assert_eq!(request.path, "/echo");
+            assert_eq!(request.raw_query, "q=1");
             assert_eq!(request.query.get("q").map(String::as_str), Some("1"));
             assert_eq!(request.body, b"hello");
             write_response(&mut stream, &Response::json(200, "{\"ok\":true}".into()));

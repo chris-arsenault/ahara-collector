@@ -1,7 +1,7 @@
 //! Entry point: `ahara-collector run --config <json> --token-file <path>
-//! --credentials <path>`. Topology comes from the Nix-rendered config
-//! document; the API token and device credentials are host state passed via
-//! systemd credentials. Modules run as threads; a module that cannot start
+//! --airwave-token-file <path> --credentials <path>`. Topology comes from the
+//! Nix-rendered config document; API tokens and device credentials are host
+//! state passed via systemd credentials. Modules run as threads; a module that cannot start
 //! (missing credentials) idles without taking the others down.
 
 use ahara_collector::api::{Api, ModuleFlags};
@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 fn usage() -> ! {
     eprintln!(
-        "usage: ahara-collector run --config <config.json> --token-file <path> --credentials <path>"
+        "usage: ahara-collector run --config <config.json> --token-file <path> --airwave-token-file <path> --credentials <path>"
     );
     std::process::exit(2);
 }
@@ -35,6 +35,7 @@ fn main() {
     }
     let config_path = read_arg(&args, "--config").unwrap_or_else(|| usage());
     let token_path = read_arg(&args, "--token-file").unwrap_or_else(|| usage());
+    let airwave_token_path = read_arg(&args, "--airwave-token-file").unwrap_or_else(|| usage());
     let credentials_path = read_arg(&args, "--credentials").unwrap_or_else(|| usage());
 
     let config_text = std::fs::read_to_string(&config_path).unwrap_or_else(|e| {
@@ -54,6 +55,18 @@ fn main() {
         });
     if token.len() < 16 {
         eprintln!("event=startup_failed reason=token_too_short");
+        std::process::exit(1);
+    }
+    let airwave_token = std::fs::read_to_string(&airwave_token_path)
+        .map(|token| token.trim().as_bytes().to_vec())
+        .unwrap_or_else(|error| {
+            eprintln!(
+                "event=startup_failed reason=airwave_token_unreadable path={airwave_token_path} error={error}"
+            );
+            std::process::exit(1);
+        });
+    if airwave_token.len() < 16 {
+        eprintln!("event=startup_failed reason=airwave_token_too_short");
         std::process::exit(1);
     }
 
@@ -86,6 +99,17 @@ fn main() {
     let metrics = Arc::new(Metrics::default());
     let registry = Arc::new(Registry::default());
     let stop = Arc::new(AtomicBool::new(false));
+    let wiim_transport = Arc::new(
+        wiim::WiimTransport::new(
+            config.home_cidr,
+            config.wiim.state_file.clone(),
+            Arc::clone(&registry),
+        )
+        .unwrap_or_else(|error| {
+            eprintln!("event=startup_failed reason=wiim_transport error={error}");
+            std::process::exit(1);
+        }),
+    );
 
     if config.airwave_ssdp.enable {
         let relay = ssdp::Relay {
@@ -94,6 +118,7 @@ fn main() {
             home_broadcast: config.home_broadcast,
             bind_address: config.bind_address,
             metrics: Arc::clone(&metrics),
+            registry: Arc::clone(&registry),
         };
         match ssdp::run(relay, Arc::clone(&stop)) {
             Ok(_handles) => eprintln!("event=module_started module=airwave_ssdp"),
@@ -108,10 +133,9 @@ fn main() {
         let module = wiim::WiimModule {
             cfg: config.wiim.clone(),
             bind_address: config.bind_address,
-            iot_cidr: config.home_cidr,
             iot_broadcast: config.home_broadcast,
             metrics: Arc::clone(&metrics),
-            registry: Arc::clone(&registry),
+            transport: Arc::clone(&wiim_transport),
         };
         module.spawn(Arc::clone(&stop));
         eprintln!("event=module_started module=wiim");
@@ -146,11 +170,15 @@ fn main() {
     }
 
     let api = Arc::new(Api {
-        token,
+        sensor_token: token,
+        airwave_token,
         ingest_creds: credentials.env_sensors.clone(),
         spools,
         metrics,
         registry,
+        wiim_transport,
+        airwave_ip: config.airwave_ssdp.airwave_ip,
+        media_server_port: config.wiim.media_server_port,
         modules: ModuleFlags {
             airwave_ssdp: config.airwave_ssdp.enable,
             wiim: config.wiim.enable,

@@ -74,16 +74,41 @@ house-sensors collectors read from the collector API instead of polling
 devices, the old TrueNAS-to-device discovery and polling flows are absent.
 The plain-port flow retires with the puller's TLS cutover.
 
-## airwave: target change
+## airwave: collector API
 
-Point `AIRWAVE_SSDP_TARGETS` at the collector's IoT-LAN address:
+Airwave reaches WiiMs only through the collector TLS endpoint:
 
 ```
-AIRWAVE_SSDP_TARGETS=239.255.255.250,192.168.30.2
+AIRWAVE_COLLECTOR_URL=https://collector.local.ahara.io:8443
+AIRWAVE_COLLECTOR_TOKEN=<value from /var/lib/ahara-collector/airwave-token>
 ```
 
-Nothing else in airwave changes: it still sends M-SEARCH from :1901,
-NOTIFYs from :1900, and receives replies on :1901.
+The suggested SSM path is `/ahara/airwave/collector/api-token`. This token is
+distinct from `/ahara/house-sensors/collector/api-token`: it can list and
+probe WiiMs, use their fixed transport routes, and renew the MediaServer
+lease, but it cannot read sensor streams or metrics.
+
+Airwave polls `GET /wiim/devices`. It sends UPnP requests through
+`POST /wiim/<id>/upnp/{av-transport,rendering-control,play-queue}` and LinkPlay
+commands through `GET /wiim/<id>/linkplay?<original query>`. When group state
+names a renderer absent from inventory, Airwave may call `POST /wiim/probe`
+with `{"ip":"192.168.30.x"}`; the collector validates the address and device
+description before adding it.
+
+Airwave renews `PUT /wiim/media-server` before the lease expires:
+
+```json
+{
+  "uuid": "<Airwave UPnP UUID>",
+  "location": "http://192.168.66.3:7882/device.xml",
+  "server": "Linux/1.0 UPnP/1.0 Airwave/<version>",
+  "leaseSeconds": 1200
+}
+```
+
+The collector then emits Airwave's five existing MediaServer advertisements
+on the IoT LAN and answers WiiM searches locally. The temporary SSDP flows
+shown above remain only until the Airwave code cutover is deployed.
 
 ## house-sensors: drain the collector instead of polling devices
 
@@ -179,8 +204,9 @@ dashboards.
 
 1. Deploy the collector; add the three gateway flows; verify
    `collector-health-check` and the VM-tested paths against real devices.
-2. Switch `AIRWAVE_SSDP_TARGETS`; confirm WiiM discovery in airwave; remove
-   the directed-broadcast flows from ahara-vpn.
+2. Store the Airwave-specific token, switch Airwave to the collector API,
+   confirm inventory, control, grouping, and media browsing, then remove the
+   cross-VLAN SSDP and direct renderer-control flows from ahara-vpn.
 3. Switch the house-sensors collectors to the drain input with the
    collector token; confirm `environment` and `voltage_monitoring` land in
    their buckets and the dashboards fill in again.

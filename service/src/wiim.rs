@@ -4,14 +4,17 @@
 //! state and never writes a readings spool.
 
 use crate::config::{Ipv4Cidr, WiimConfig};
+use crate::http::MAX_BODY;
 use crate::json::{self, Json};
 use crate::metrics::{self, Metrics};
 use crate::ssdp::{SsdpMessage, MEDIA_RENDERER_URN, SSDP_MULTICAST};
 use reqwest::blocking::Client;
+use reqwest::redirect::Policy;
 use reqwest::Url;
 use roxmltree::{Document, Node};
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::io::Read;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,6 +22,21 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_DATAGRAM: usize = 2048;
+const PROBE_PORTS: [u16; 2] = [49152, 59152];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WiimService {
+    AvTransport,
+    RenderingControl,
+    PlayQueue,
+}
+
+#[derive(Debug)]
+pub struct WiimProxyResponse {
+    pub status: u16,
+    pub content_type: String,
+    pub body: Vec<u8>,
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WiimServices {
@@ -123,10 +141,9 @@ fn optional_string(value: &Json, key: &str) -> Option<String> {
 pub struct WiimModule {
     pub cfg: WiimConfig,
     pub bind_address: Ipv4Addr,
-    pub iot_cidr: Ipv4Cidr,
     pub iot_broadcast: Ipv4Addr,
     pub metrics: Arc<Metrics>,
-    pub registry: Arc<crate::registry::Registry>,
+    pub transport: Arc<WiimTransport>,
 }
 
 impl WiimModule {
@@ -142,30 +159,29 @@ impl WiimModule {
             );
             Vec::new()
         });
-        self.registry.wiim.lock().unwrap().clone_from(&devices);
+        self.transport
+            .registry
+            .wiim
+            .lock()
+            .unwrap()
+            .clone_from(&devices);
         metrics::set(&self.metrics.wiim_devices, devices.len() as u64);
 
-        let client = match Client::builder().timeout(Duration::from_secs(5)).build() {
-            Ok(client) => client,
-            Err(error) => {
-                eprintln!("event=wiim_start_failed reason=http_client error={error}");
-                return;
-            }
-        };
         let interval = Duration::from_secs(self.cfg.discovery_interval_seconds);
 
         while !stop.load(Ordering::Relaxed) {
             metrics::inc(&self.metrics.wiim_discovery_runs);
-            match self.discover(&client, stop) {
+            match self.discover(stop) {
                 Ok(discovered) => {
                     devices = merge_inventory(devices, discovered);
-                    if let Err(error) = save_inventory(Path::new(&self.cfg.state_file), &devices) {
+                    let mut inventory = self.transport.registry.wiim.lock().unwrap();
+                    inventory.clone_from(&devices);
+                    if let Err(error) = save_inventory(Path::new(&self.cfg.state_file), &inventory) {
                         eprintln!(
                             "event=wiim_inventory_save_failed path={} error={error}",
                             self.cfg.state_file
                         );
                     }
-                    self.registry.wiim.lock().unwrap().clone_from(&devices);
                     metrics::set(&self.metrics.wiim_devices, devices.len() as u64);
                     metrics::set(
                         &self.metrics.wiim_reachable_devices,
@@ -186,7 +202,7 @@ impl WiimModule {
         }
     }
 
-    fn discover(&self, client: &Client, stop: &AtomicBool) -> Result<Vec<WiimDevice>, String> {
+    fn discover(&self, stop: &AtomicBool) -> Result<Vec<WiimDevice>, String> {
         let bind = SocketAddr::V4(SocketAddrV4::new(
             self.bind_address,
             self.cfg.discovery_bind_port,
@@ -220,10 +236,10 @@ impl WiimModule {
             let SocketAddr::V4(source) = source else {
                 continue;
             };
-            if length > MAX_DATAGRAM || !self.iot_cidr.contains(*source.ip()) {
+            if length > MAX_DATAGRAM || !self.transport.iot_cidr.contains(*source.ip()) {
                 continue;
             }
-            if let Some(location) = renderer_location(&buffer[..length], &self.iot_cidr) {
+            if let Some(location) = renderer_location(&buffer[..length], &self.transport.iot_cidr) {
                 locations.insert(location);
             }
         }
@@ -231,7 +247,12 @@ impl WiimModule {
         let now = unix_seconds();
         let mut devices = BTreeMap::new();
         for location in locations {
-            match fetch_description(client, &location, &self.iot_cidr, now) {
+            match fetch_description(
+                &self.transport.http,
+                &location,
+                &self.transport.iot_cidr,
+                now,
+            ) {
                 Ok(device) => {
                     devices.insert(device.id.clone(), device);
                 }
@@ -243,6 +264,172 @@ impl WiimModule {
         }
         Ok(devices.into_values().collect())
     }
+}
+
+/// Registry-constrained transport for Airwave. Every outbound request resolves
+/// a collector-owned device ID and a service path learned from that device's
+/// description document; callers cannot provide a destination URL.
+pub struct WiimTransport {
+    http: Client,
+    https: Client,
+    iot_cidr: Ipv4Cidr,
+    state_file: String,
+    registry: Arc<crate::registry::Registry>,
+}
+
+impl WiimTransport {
+    pub fn new(
+        iot_cidr: Ipv4Cidr,
+        state_file: String,
+        registry: Arc<crate::registry::Registry>,
+    ) -> Result<WiimTransport, String> {
+        let common = || {
+            Client::builder()
+                .timeout(Duration::from_secs(8))
+                .redirect(Policy::none())
+        };
+        let http = common().build().map_err(|error| error.to_string())?;
+        let https = common()
+            .danger_accept_invalid_certs(true)
+            .build()
+            .map_err(|error| error.to_string())?;
+        Ok(WiimTransport {
+            http,
+            https,
+            iot_cidr,
+            state_file,
+            registry,
+        })
+    }
+
+    pub fn proxy_upnp(
+        &self,
+        id: &str,
+        service: WiimService,
+        content_type: Option<&str>,
+        soap_action: Option<&str>,
+        body: &[u8],
+    ) -> Result<WiimProxyResponse, String> {
+        let device = self.device(id)?;
+        let path = match service {
+            WiimService::AvTransport => device.services.av_transport,
+            WiimService::RenderingControl => device.services.rendering_control,
+            WiimService::PlayQueue => device.services.play_queue,
+        }
+        .ok_or_else(|| "renderer does not advertise that service".to_string())?;
+        let target = format!("http://{}:{}{path}", device.ip, device.description_port);
+        let mut request = self.http.post(target).body(body.to_vec());
+        if let Some(value) = content_type {
+            request = request.header(reqwest::header::CONTENT_TYPE, value);
+        }
+        if let Some(value) = soap_action {
+            request = request.header("soapaction", value);
+        }
+        collect_response(request.send().map_err(|error| error.to_string())?)
+    }
+
+    pub fn proxy_linkplay(
+        &self,
+        id: &str,
+        raw_query: &str,
+    ) -> Result<WiimProxyResponse, String> {
+        if raw_query.is_empty() {
+            return Err("LinkPlay command query is required".into());
+        }
+        let device = self.device(id)?;
+        let target = Url::parse(&format!(
+            "https://{}:443/httpapi.asp?{raw_query}",
+            device.ip
+        ))
+        .map_err(|error| error.to_string())?;
+        collect_response(
+            self.https
+                .get(target)
+                .send()
+                .map_err(|error| error.to_string())?,
+        )
+    }
+
+    pub fn probe(&self, ip: Ipv4Addr) -> Result<WiimDevice, String> {
+        if !self.iot_cidr.contains(ip) {
+            return Err("probe address is outside the IoT CIDR".into());
+        }
+        let mut ports = self
+            .registry
+            .wiim
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|device| device.ip == ip)
+            .map(|device| device.description_port)
+            .collect::<Vec<_>>();
+        ports.extend(PROBE_PORTS);
+        ports.sort_unstable();
+        ports.dedup();
+
+        let now = unix_seconds();
+        let mut last_error = "no candidate ports".to_string();
+        for port in ports {
+            let location = format!("http://{ip}:{port}/description.xml");
+            match fetch_description(&self.http, &location, &self.iot_cidr, now) {
+                Ok(device) => {
+                    let mut inventory = self.registry.wiim.lock().unwrap();
+                    let merged = merge_inventory(inventory.clone(), vec![device.clone()]);
+                    save_inventory(Path::new(&self.state_file), &merged)?;
+                    *inventory = merged;
+                    return Ok(device);
+                }
+                Err(error) => last_error = error,
+            }
+        }
+        Err(format!("WiiM probe failed: {last_error}"))
+    }
+
+    fn device(&self, id: &str) -> Result<WiimDevice, String> {
+        let device = self
+            .registry
+            .wiim
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|device| device.id == id)
+            .cloned()
+            .ok_or_else(|| "unknown WiiM device".to_string())?;
+        if !self.iot_cidr.contains(device.ip) {
+            return Err("registered WiiM address is outside the IoT CIDR".into());
+        }
+        Ok(device)
+    }
+}
+
+fn collect_response(mut response: reqwest::blocking::Response) -> Result<WiimProxyResponse, String> {
+    if response
+        .content_length()
+        .is_some_and(|length| length > MAX_BODY as u64)
+    {
+        return Err("renderer response is too large".into());
+    }
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("application/octet-stream")
+        .to_string();
+    let mut body = Vec::new();
+    response
+        .by_ref()
+        .take(MAX_BODY as u64 + 1)
+        .read_to_end(&mut body)
+        .map_err(|error| error.to_string())?;
+    if body.len() > MAX_BODY {
+        return Err("renderer response is too large".into());
+    }
+    Ok(WiimProxyResponse {
+        status,
+        content_type,
+        body,
+    })
 }
 
 fn renderer_search(window_seconds: u64) -> String {
@@ -464,6 +651,9 @@ fn sleep_interruptible(total: Duration, stop: &AtomicBool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::http::{read_request, write_response, Response};
+    use crate::registry::Registry;
+    use std::net::TcpListener;
 
     const DESCRIPTION: &str = r#"<?xml version="1.0"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
@@ -539,5 +729,61 @@ mod tests {
         let merged = merge_inventory(loaded, Vec::new());
         assert_eq!(merged[0].last_seen_seconds, 42);
         assert!(!merged[0].reachable);
+    }
+
+    #[test]
+    fn upnp_transport_uses_only_the_registered_service_path() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let registry = Arc::new(Registry::default());
+        registry.wiim.lock().unwrap().push(WiimDevice {
+            id: "local-renderer".into(),
+            udn: "uuid:local-renderer".into(),
+            ip: Ipv4Addr::LOCALHOST,
+            name: "Local renderer".into(),
+            model: None,
+            firmware: None,
+            description_port: port,
+            description_path: "/description.xml".into(),
+            services: WiimServices {
+                av_transport: Some("/upnp/control/avtransport1".into()),
+                rendering_control: None,
+                play_queue: None,
+            },
+            last_seen_seconds: 1,
+            reachable: true,
+        });
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_request(&mut stream).unwrap();
+            assert_eq!(request.method, "POST");
+            assert_eq!(request.path, "/upnp/control/avtransport1");
+            assert_eq!(request.headers.get("soapaction").map(String::as_str), Some("play"));
+            write_response(
+                &mut stream,
+                &Response::bytes(200, "text/xml", b"<ok/>".to_vec()),
+            );
+        });
+        let transport = WiimTransport::new(
+            Ipv4Cidr::parse("127.0.0.0/8").unwrap(),
+            "/tmp/unused-wiim-inventory.json".into(),
+            registry,
+        )
+        .unwrap();
+        let response = transport
+            .proxy_upnp(
+                "local-renderer",
+                WiimService::AvTransport,
+                Some("text/xml"),
+                Some("play"),
+                b"<play/>",
+            )
+            .unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"<ok/>");
+        assert!(transport
+            .proxy_upnp("unknown", WiimService::AvTransport, None, None, b"")
+            .is_err());
+        server.join().unwrap();
     }
 }
