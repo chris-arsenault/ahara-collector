@@ -358,7 +358,9 @@ in
               install -m 0640 -o "''${OWNER%%:*}" -g "''${OWNER##*:}" "$tmp/privkey.pem" "$key"
               echo "installed a new shared certificate"
               ${lib.concatMapStringsSep "\n" (
-                unit: "systemctl reload-or-restart ${unit} || true"
+                # The terminator is ordered after this service at boot. Queue
+                # its reload so neither unit waits for the other to finish.
+                unit: "systemctl --no-block reload-or-restart ${unit} || true"
               ) cfg.certificate.reloadUnits}
             '';
           }
