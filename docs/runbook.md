@@ -110,8 +110,9 @@ given), and installs. Nothing is committed to Git.
 5. Verify: `collector-health-check` prints `health: all checks ok`, and
    `curl -s https://collector.local.ahara.io:8443/health` answers from the
    IoT LAN. No `-k`: the certificate is publicly trusted. If nothing answers,
-   the appliance has no certificate yet — check `ahara-enroll` and
-   `ahara-certificate`.
+   check `journalctl -u ahara-enroll.service` and
+   `journalctl -u ahara-certificate.service`. Both services retry from systemd
+   timers; starting them manually is only an acceleration or recovery step.
 
 ## Routine operations
 

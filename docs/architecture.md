@@ -3,7 +3,7 @@
 The collector is a single-purpose appliance on the IoT LAN: it is the
 one host that faces the house's IoT devices, and the only surface it offers
 the rest of the network is one authenticated TCP port, served over TLS at
-`collector.local.ahara.io`.
+`collector.local.ahara.io` (ADR-0012).
 
 ## Topology
 

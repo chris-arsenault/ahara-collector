@@ -2,7 +2,7 @@
 
 | # | Title | Status | Date |
 | - | ----- | ------ | ---- |
-| [0001](0001-collector-appliance-on-the-home-lan.md) | The collector is a dedicated appliance on the home LAN | Accepted | 2026-08-05 |
+| [0001](0001-collector-appliance-on-the-home-lan.md) | The collector is a dedicated appliance on the home LAN | Superseded by 0012 | 2026-08-05 |
 | [0002](0002-truenas-pulls-readings.md) | TrueNAS pulls readings; the collector holds no upstream credentials | Accepted | 2026-08-05 |
 | [0003](0003-credentials-as-host-state.md) | Device credentials are one host-state file | Accepted | 2026-08-05 |
 | [0004](0004-pull-deployment-pattern-reused.md) | Deployment reuses the ahara-vpn pull pattern | Superseded in part by 0009 | 2026-08-05 |
@@ -13,3 +13,4 @@
 | [0009](0009-versioned-topology-and-local-machine-values.md) | Version topology and keep machine values local | Accepted | 2026-08-13 |
 | [0010](0010-pinned-protocol-client-dependencies.md) | Use pinned HTTP/TLS and XML clients for device protocols | Accepted | 2026-08-14 |
 | [0011](0011-collector-owns-wiim-reachability-not-playback.md) | Collector owns WiiM reachability, not playback semantics | Accepted | 2026-08-14 |
+| [0012](0012-collector-on-dedicated-iot-lan.md) | The collector resides on the dedicated IoT LAN | Accepted | 2026-08-16 |
