@@ -288,6 +288,7 @@ in
             runtimeInputs = with pkgs; [
               coreutils
               curl
+              diffutils
               jq
               openssl
               systemd

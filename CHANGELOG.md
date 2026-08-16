@@ -28,6 +28,8 @@ All notable user-visible changes are recorded here.
   kind. The plain port stays open until the
   TrueNAS puller cuts over. The deploy health gate checks that the
   terminator answers, so a release that cannot serve TLS rolls back.
+- The shared-certificate client includes its file-comparison utility, allowing
+  renewals to compare and replace an existing certificate unattended.
 - The S13 collector appliance exists: a NixOS host on the IoT LAN with a
   one-command bootstrap installer, pull-based self-deployment gated by
   health checks with rollback, and a default-drop firewall opening exactly
