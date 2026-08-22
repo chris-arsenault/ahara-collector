@@ -40,7 +40,13 @@ let
       workload=${cfg.workloadId}
 
       mkdir -p "$state"
-      chmod 0700 "$state"
+      # Traversable, because a terminator on this host verifies its callers
+      # against the pinned authority below and does not run as root. The
+      # private key inside stays 0600 and is the reason this is not 0700: a
+      # mode on the directory would be protecting a file that protects itself,
+      # at the cost of every reader that has a legitimate need for the
+      # certificates beside it.
+      chmod 0755 "$state"
 
       # Fetching the CA is the one call with nothing to verify against, so it
       # is trust-on-first-use and -k. Everything afterwards is verified: the
@@ -57,6 +63,14 @@ let
           exit 0
         }
       fi
+
+      # The authority certificate is public material: it is what this appliance
+      # is told to trust, it is served unauthenticated at /ca.pem, and it is
+      # committed to the infrastructure repository. Set the mode on every run,
+      # not only on the fetch, so an appliance that pinned it under the unit's
+      # restrictive umask is repaired rather than left with a terminator that
+      # cannot read it.
+      chmod 0644 "$chain"
 
       # Verify the transport against the pinned CA from here on.
       verified=(--cacert "$chain")
