@@ -19,6 +19,15 @@ let
   api = site.api;
 in
 {
+  # Declared rather than left to whichever unit calls mkdir first. Certificate
+  # distribution runs under a restrictive umask, and the terminator has to walk
+  # this path to reach the certificate it serves; a directory whose mode
+  # depends on boot ordering is a surface that comes up or does not for reasons
+  # nothing reports. The private key beside it carries its own mode.
+  systemd.tmpfiles.rules = [
+    "d ${builtins.dirOf api.certificate} 0755 root root -"
+  ];
+
   services.nginx = {
     enable = true;
     recommendedTlsSettings = true;

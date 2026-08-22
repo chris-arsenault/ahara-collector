@@ -368,6 +368,14 @@ in
               fi
 
               mkdir -p "$(dirname "$cert")" "$(dirname "$key")"
+              # Explicitly, because this unit runs under a restrictive umask
+              # and would otherwise leave a directory the terminator cannot
+              # enter — putting a key it is allowed to read behind a door it
+              # is not allowed to open. Whether that bites depends on which
+              # unit created the directory first, which is not a thing to
+              # leave to boot ordering. The modes on the files below are what
+              # protect them.
+              chmod 0755 "$(dirname "$cert")" "$(dirname "$key")"
               install -m 0644 "$tmp/fullchain.pem" "$cert"
               install -m 0640 -o "''${OWNER%%:*}" -g "''${OWNER##*:}" "$tmp/privkey.pem" "$key"
               echo "installed a new shared certificate"

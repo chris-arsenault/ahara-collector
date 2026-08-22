@@ -390,6 +390,26 @@ pkgs.testers.runNixOSTest {
         collector.succeed("systemctl is-active nginx.service")
         collector.fail("systemctl list-units --all | grep -q ahara-collector-tls")
         collector.succeed("test $(stat -c %a /var/lib/ahara-collector-tls/api.key) = 640")
+        # A mode on the key is worth nothing if nginx cannot enter the
+        # directory holding it, and nginx does not run as root. Checked against
+        # the configuration rather than a list written here, so a vhost that
+        # starts reading something new is covered by default.
+        conf = collector.succeed(
+            "systemctl show nginx -p ExecStart --value "
+            "| grep -oE '/nix/store/[^ ]+nginx\\.conf' | head -1"
+        ).strip()
+        # Longest alternatives first, or ssl_certificate swallows the prefix of
+        # ssl_certificate_key and the key never gets checked.
+        configured = sorted(set(collector.succeed(
+            "grep -hoE '(ssl_certificate_key|ssl_client_certificate|ssl_trusted_certificate|"
+            "proxy_ssl_certificate_key|proxy_ssl_certificate|ssl_certificate)[[:space:]]+[^;]+;' "
+            f"{conf} | grep -oE '/[^;]+'"
+        ).split()))
+        assert len(configured) >= 2, f"expected the terminator to name its material, got {configured}"
+        for path in configured:
+            collector.succeed(f"runuser -u nginx -- test -r {path}")
+        # The API's own secrets are not the terminator's business.
+        collector.fail("runuser -u nginx -- test -r /var/lib/ahara-collector/api-token")
         # No ACME client and no cloud credential either.
         collector.fail("systemctl list-units --all | grep -q acme")
         # Authorization passes through the terminator unchanged.
