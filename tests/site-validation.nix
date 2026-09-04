@@ -41,6 +41,10 @@ let
       s = withNetwork { adminLanCidr = "not-a-cidr"; };
     }
     {
+      name = "malformed-trust-appliance-ip";
+      s = withNetwork { trustApplianceIp = "not-an-ip"; };
+    }
+    {
       name = "address-is-broadcast";
       s = withNetwork { address = "192.168.30.255"; };
     }

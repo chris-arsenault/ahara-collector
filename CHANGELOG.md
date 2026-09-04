@@ -6,6 +6,8 @@ All notable user-visible changes are recorded here.
 
 ### Appliance
 
+- Administrative SSH now accepts only the trust appliance at `192.168.67.2`;
+  Secure LAN clients retain API access but cannot open direct SSH sessions.
 - Static topology and service settings now live in versioned `topology.json`;
   only interface identity and administrator keys remain in machine-local
   `machine-values.json`. Existing combined stores migrate automatically and

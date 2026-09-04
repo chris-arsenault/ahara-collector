@@ -151,6 +151,14 @@ let
     {
       path = [
         "network"
+        "trustApplianceIp"
+      ];
+      check = isIp;
+      describe = "IPv4 address";
+    }
+    {
+      path = [
+        "network"
         "address"
       ];
       check = isIp;

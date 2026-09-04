@@ -110,10 +110,10 @@ metric.
 ## Firewall
 
 The NixOS nftables firewall defaults to drop and opens exactly the declared
-surface: SSH from the trusted home LAN; the API's TLS and plain ports from
-TrueNAS, the home LAN, and the IoT LAN; SSDP 1900 from on-link IoT devices;
-the WiiM inventory reply port; and the two fixed sensor discovery-reply ports
-(broadcast requests cannot ride
+surface: SSH only from the trust appliance at `192.168.67.2`; the API's TLS
+and plain ports from TrueNAS, the home LAN, and the IoT LAN; SSDP 1900 from
+on-link IoT devices; the WiiM inventory reply port; and the two fixed sensor
+discovery-reply ports (broadcast requests cannot ride
 conntrack, so the service binds fixed source ports and the rules stay
 narrow). Every rule carries a `collector:` comment.
 

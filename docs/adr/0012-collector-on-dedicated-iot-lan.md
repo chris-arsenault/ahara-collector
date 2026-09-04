@@ -25,7 +25,7 @@ MediaServer advertisement remain on-link.
 Consumers reach the collector through the gateway on the single declared API
 port. The gateway routes these flows without source NAT, allowing the collector
 firewall to restrict callers by their original addresses. Administrative SSH
-remains limited to the trusted home LAN.
+is admitted only from the trust appliance's fixed address.
 
 ## Alternatives
 

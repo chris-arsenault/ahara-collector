@@ -25,8 +25,8 @@ ssh-keygen -t ed25519 -N "" -f ~/.ssh/collector-ops -C "collector-ops"
 ```
 
 The public half is authorized on the appliance at install; the private key
-stays on your machine (`ssh -i ~/.ssh/collector-ops ops@…`, or add it to
-`~/.ssh/config` for the host).
+must also be saved as `collector-ssh-key` in the trust management console.
+The installed collector accepts SSH only from that appliance.
 
 Render the device credentials from the SSM parameters they already live
 in:
@@ -91,21 +91,19 @@ given), and installs. Nothing is committed to Git.
 
 ## After first boot
 
-1. SSH in: `ssh ops@192.168.30.2`.
+1. Open the trust management console's **Terminal** tab and choose
+   **collector**.
 2. Read the House Sensors token and give it to the house-sensors drain
    ([integration.md](integration.md)):
    `sudo cat /var/lib/ahara-collector/api-token`
 3. Read the separately scoped Airwave token and store it at the Airwave
    stack's configured secret path:
    `sudo cat /var/lib/ahara-collector/airwave-token`
-4. If credentials were not seeded at install:
-
-   ```bash
-   scp credentials.json ops@192.168.30.2:/tmp/credentials.json
-   ssh ops@192.168.30.2 'sudo install -m 0600 -o root -g root \
-     /tmp/credentials.json /var/lib/ahara-collector/credentials.json && \
-     rm /tmp/credentials.json && sudo systemctl restart ahara-collector'
-   ```
+4. If credentials were not seeded at install, use the trust Terminal session
+   (or the physical console) to install
+   `/var/lib/ahara-collector/credentials.json` as mode `0600`, owned by root,
+   then restart `ahara-collector`. Direct workstation SSH and SCP are
+   intentionally refused after installation.
 
 5. Verify: `collector-health-check` prints `health: all checks ok`, and
    `curl -s https://collector.local.ahara.io:8443/health` answers from the
@@ -122,7 +120,7 @@ given), and installs. Nothing is committed to Git.
 | Force an update poll | `sudo systemctl start collector-update.service` |
 | Change topology or a service setting | Edit `hosts/collector/topology.json`; CI deploys the reviewed release |
 | Replace the NIC or administrator key | Edit `/var/lib/ahara-collector/machine-values.json`, then start `collector-update.service` |
-| Rotate device credentials | Re-upload the file, `sudo systemctl restart ahara-collector` |
+| Rotate device credentials | Replace the root-owned file through the trust Terminal or physical console, then `sudo systemctl restart ahara-collector` |
 | See what the collector is doing | `journalctl -u ahara-collector -f` (structured `event=` lines) |
 | Check the spool | `curl -s -H "authorization: Bearer $TOKEN" https://collector.local.ahara.io:8443/metrics \| grep spool` |
 | List sensor devices | `curl -s -H "authorization: Bearer $SENSOR_TOKEN" https://collector.local.ahara.io:8443/devices` |

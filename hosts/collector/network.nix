@@ -57,8 +57,8 @@ in
     enable = true;
     allowPing = true;
     extraInputRules = ''
-      # Admin SSH from the trusted admin LAN only.
-      ip saddr ${n.adminLanCidr} tcp dport 22 accept comment "collector:ssh-admin"
+      # The trust appliance is the sole interactive administration path.
+      ip saddr ${n.trustApplianceIp} tcp dport 22 accept comment "collector:ssh-admin"
 
       # Pull API over TLS (ahara-vpn ADR-0015): the terminator fronts the
       # service at collector.local.ahara.io, so nothing crosses the wire in

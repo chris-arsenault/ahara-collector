@@ -5,6 +5,7 @@
   "network": {
     "homeLanCidr": "192.168.30.0/24",
     "adminLanCidr": "192.168.65.0/24",
+    "trustApplianceIp": "192.168.67.2",
     "address": "192.168.30.2",
     "routerIp": "192.168.30.1",
     "dnsServers": ["192.168.60.2"],

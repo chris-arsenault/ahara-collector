@@ -339,6 +339,13 @@ pkgs.testers.runNixOSTest {
         collector.succeed("ip route show default | grep -q 'via 192.168.30.1'")
 
     with subtest("firewall: default drop with the declared surface only"):
+        collector.succeed(
+            "nft list ruleset | grep -F 'collector:ssh-admin' | "
+            "grep -qF 'ip saddr 192.168.67.2 tcp dport 22'"
+        )
+        collector.fail(
+            "nft list ruleset | grep -F 'collector:ssh-admin' | grep -qF '192.168.65.0/24'"
+        )
         collector.succeed("nft list ruleset | grep -qF 'collector:api'")
         collector.succeed("nft list ruleset | grep -qF 'collector:api-tls'")
         collector.succeed("nft list ruleset | grep -qF 'collector:wiim-media-ssdp'")

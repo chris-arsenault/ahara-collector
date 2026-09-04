@@ -52,6 +52,7 @@ in
     inherit (n)
       homeLanCidr
       adminLanCidr
+      trustApplianceIp
       address
       routerIp
       dnsServers
