@@ -6,6 +6,9 @@ All notable user-visible changes are recorded here.
 
 ### Appliance
 
+- The collector API's nginx terminator serves HTTP/1.1 only. HTTP/2 is off
+  until nixpkgs ships nginx 1.30.7 or later, which fixes the HTTP/2
+  remote-code-execution bugs CVE-2026-123633 and CVE-2026-123007.
 - Administrative SSH now accepts only the trust appliance at `192.168.67.2`;
   Secure LAN clients retain API access but cannot open direct SSH sessions.
 - Static topology and service settings now live in versioned `topology.json`;

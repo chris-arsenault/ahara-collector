@@ -37,6 +37,9 @@ in
       # The module emits ssl_certificate only for a vhost that declares SSL;
       # a listener's `ssl = true` alone leaves nginx failing its config test.
       onlySSL = true;
+      # HTTP/1.1 only until nixpkgs ships nginx >= 1.30.7, which fixes the
+      # HTTP/2 RCEs CVE-2026-123633 and CVE-2026-123007.
+      http2 = false;
       listen = [
         {
           addr = n.address;
